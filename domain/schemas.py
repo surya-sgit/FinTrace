@@ -104,3 +104,22 @@ class TaxReportResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class XIRRReportResponse(BaseModel):
+    portfolio_id: uuid.UUID
+    xirr_percentage: float = Field(..., description="Annualized portfolio return rate as a percentage.")
+    total_invested_capital: float = Field(..., description="Absolute sum of all capital deployed (includes brokerage).")
+    current_market_value: float = Field(..., description="Value of all remaining holdings at the most recent cached market price.")
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "portfolio_id": "123e4567-e89b-12d3-a456-426614174000",
+                "xirr_percentage": 14.25,
+                "total_invested_capital": 55000.00,
+                "current_market_value": 68500.50
+            }
+        }
+    )
