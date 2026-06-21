@@ -327,6 +327,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "pyxirr" },
+    { name = "reportlab" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
     { name = "weasyprint" },
@@ -347,6 +348,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-multipart", specifier = ">=0.0.32" },
     { name = "pyxirr", specifier = ">=0.10.8" },
+    { name = "reportlab", specifier = ">=5.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.51" },
     { name = "uvicorn", specifier = ">=0.49.0" },
     { name = "weasyprint", specifier = ">=69.0" },
@@ -873,6 +875,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/89/107c6f5c8936aaf0d8bccdd9f5a666371553c4a20022595a05f23413e2d4/pyxirr-0.10.8-cp37-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:6dd479d44eb0c784b041766044b4a7562d3e22b807b7c8b5fdad123461ebb531", size = 739907, upload-time = "2025-11-03T22:16:49.144Z" },
     { url = "https://files.pythonhosted.org/packages/83/9e/c6a4c3258247a99ca8f6650b30453991a03995a627b0d55303bc6f18cc37/pyxirr-0.10.8-cp37-abi3-musllinux_1_2_i686.whl", hash = "sha256:c4b9ea37f905ed6f571292b73942d6c0382823ac326a52b00e62107b8851cbb4", size = 733700, upload-time = "2025-11-03T22:17:52.462Z" },
     { url = "https://files.pythonhosted.org/packages/52/b3/ba76ff08ce7ff049fc05089d9b5527ec2fb3c1e50e8269d903478bed2cc0/pyxirr-0.10.8-cp37-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:df00db884ecd138bfe9eb2146e5bcc6d6a0f65efeec4cbdffd19aed6ce11f2d3", size = 715211, upload-time = "2025-11-03T22:15:39.352Z" },
+]
+
+[[package]]
+name = "reportlab"
+version = "5.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "charset-normalizer" },
+    { name = "pillow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/41/d6/4b7b0cf56880eb96533e607967be6a939e344675601e033d113a0bfa1f4e/reportlab-5.0.0.tar.gz", hash = "sha256:e4494a0c6623ae213bb856fba523171b2b54a7bf629fda02d5e525a7b899a784", size = 3701928, upload-time = "2026-06-18T11:34:31.145Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/07/70085c17a369605f15e301d10ab902115019b1126c7253d964afc230c7d6/reportlab-5.0.0-py3-none-any.whl", hash = "sha256:9d5a3affa84919e1111ede580031266a570e93b1ce388219621347965ff1d93c", size = 1956710, upload-time = "2026-06-18T11:34:29.07Z" },
 ]
 
 [[package]]

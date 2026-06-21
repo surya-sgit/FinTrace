@@ -1,5 +1,6 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from db.session import get_db
@@ -7,6 +8,7 @@ from domain import models, schemas
 from engine.math_core.tax_engine import FIFOTaxEngine
 from engine.math_core.xirr_engine import XIRREngine
 from api.dependencies import get_current_user
+from engine.documents.pdf_generator import create_tax_pdf
 
 router = APIRouter()
 
@@ -72,4 +74,42 @@ def generate_xirr_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db),
         xirr_percentage=report_data["xirr_percentage"],
         total_invested_capital=report_data["total_invested"],
         current_market_value=report_data["current_value"]
+    )
+
+
+
+@router.get(
+    "/{portfolio_id}/tax-report/pdf",
+    summary="Download PDF Tax Report",
+    description="Generates and streams a formatted PDF document containing the FIFO tax ledger."
+)
+def download_tax_report_pdf(
+    portfolio_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    # 1. Verify Portfolio Ownership
+    portfolio = db.query(models.Portfolio).filter(
+        models.Portfolio.id == portfolio_id,
+        models.Portfolio.user_id == current_user.id
+    ).first()
+
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
+
+    # 2. Run the math engine to get the raw numbers
+    try:
+        engine = FIFOTaxEngine(db_session=db, portfolio_id=str(portfolio_id))
+        report_data = engine.compute_realized_gains()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Engine calculation failed.")
+
+    # 3. Generate the PDF buffer
+    pdf_buffer = create_tax_pdf(report_data, current_user.email)
+
+    # 4. Stream the file directly to the client
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=FinTrace_Tax_Report_{portfolio_id}.pdf"}
     )
