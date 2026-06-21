@@ -6,6 +6,7 @@ from db.session import get_db
 from domain import models, schemas
 from engine.math_core.tax_engine import FIFOTaxEngine
 from engine.math_core.xirr_engine import XIRREngine
+from api.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -18,11 +19,11 @@ router = APIRouter()
     Applies strict FIFO matching to calculate realized Short-Term and Long-Term Capital Gains.
     """
 )
-def generate_tax_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db)):
+def generate_tax_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     # 1. Verify Portfolio
-    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id).first()
+    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id, models.Portfolio.user_id == current_user.id).first()
     if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found.")
+        raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
 
     # 2. Execute the Math Engine
     try:
@@ -53,10 +54,10 @@ def generate_tax_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db)):
     evaluating the terminal value of the portfolio using the latest cached market data.
     """
 )
-def generate_xirr_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db)):
-    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id).first()
+def generate_xirr_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id, models.Portfolio.user_id == current_user.id).first()
     if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found.")
+        raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
 
     try:
         engine = XIRREngine(db_session=db, portfolio_id=str(portfolio_id))

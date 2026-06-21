@@ -5,6 +5,7 @@ from typing import List
 
 from db.session import get_db
 from domain import models, schemas
+from api.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -21,16 +22,9 @@ router = APIRouter()
     """,
     response_description="The fully instantiated portfolio object including its UUID."
 )
-def create_portfolio(portfolio: schemas.PortfolioCreate, db: Session = Depends(get_db)):
-    user = db.query(models.User).first()
-    if not user:
-        user = models.User(email="admin@fintrace.local", hashed_password="secure_mock_hash")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-
+def create_portfolio(portfolio: schemas.PortfolioCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     new_portfolio = models.Portfolio(
-        user_id=user.id,
+        user_id=current_user.id,
         name=portfolio.name,
         tax_jurisdiction=portfolio.tax_jurisdiction.value
     )

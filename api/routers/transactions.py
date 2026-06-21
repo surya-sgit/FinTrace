@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from db.session import get_db
 from domain import models, schemas
 from engine.market_data.market_service import MarketDataService
+from api.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -30,12 +31,13 @@ def generate_row_checksum(portfolio_id: str, row_data: dict) -> str:
 async def upload_transaction_ledger(
     portfolio_id: uuid.UUID,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)  # <-- This Depends() is critical
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     # 1. Verify Portfolio Exists
-    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id).first()
+    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id,models.Portfolio.user_id == current_user.id).first()
     if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found.")
+        raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
 
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Invalid file type. Only CSV files are accepted.")

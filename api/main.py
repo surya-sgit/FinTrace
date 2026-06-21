@@ -1,9 +1,13 @@
 # api/main.py
 from fastapi import FastAPI
-from api.routers import portfolios, transactions, reports
+from api.routers import portfolios, transactions, reports, auth
 
 # Define categorical metadata for the Swagger UI
 tags_metadata = [
+    {
+        "name": "Authentication",
+        "description": "Identity verification and JWT generation.",
+    },
     {
         "name": "Portfolios",
         "description": "Operations to manage investment containers. A portfolio is required before you can ingest any transaction ledgers.",
@@ -36,6 +40,12 @@ app = FastAPI(
         "name": "FinTrace Engineering",
         "email": "engineering@fintrace.dev",
     }
+)
+
+app.include_router(
+    auth.router,
+    prefix="/api/v1/auth",
+    tags=["Authentication"]
 )
 
 app.include_router(

@@ -123,3 +123,18 @@ class XIRRReportResponse(BaseModel):
             }
         }
     )
+
+
+# ---------------------------------------------------------
+# Security & Authentication Schemas
+# ---------------------------------------------------------
+class UserCreate(BaseModel):
+    email: str = Field(..., description="A valid email address.")
+    password: str = Field(..., min_length=8, description="Strong password (minimum 8 characters).")
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    user_id: str | None = None
