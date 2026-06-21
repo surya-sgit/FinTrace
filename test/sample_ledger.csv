@@ -1,0 +1,5 @@
+ticker,transaction_type,quantity,price_per_unit,brokerage_fees,execution_date
+RELIANCE.NS,BUY,15,2450.50,20.00,2025-01-16
+TCS.NS,BUY,10,3800.00,15.00,2025-02-11
+RELIANCE.NS,SELL,5,2600.00,25.00,2025-06-21
+INFY.NS,BUY,25,1450.75,0.00,2025-08-06

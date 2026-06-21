@@ -1,0 +1,120 @@
+import uuid
+from datetime import datetime
+from sqlalchemy import Column, String, Numeric, DateTime, Date, ForeignKey, BigInteger, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import declarative_base, relationship
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String(255), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    portfolios = relationship("Portfolio", back_populates="owner")
+
+
+class Portfolio(Base):
+    __tablename__ = "portfolios"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    name = Column(String(128), nullable=False)
+    tax_jurisdiction = Column(String(8), default="IN")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    owner = relationship("User", back_populates="portfolios")
+    transactions = relationship("TransactionLedger", back_populates="portfolio")
+    snapshots = relationship("PortfolioSnapshot", back_populates="portfolio")
+
+
+class TransactionLedger(Base):
+    __tablename__ = "transaction_ledger"
+    """
+    Append-only ledger. Records are never updated or deleted directly.
+    """
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    portfolio_id = Column(UUID(as_uuid=True), ForeignKey("portfolios.id"), nullable=False)
+    ticker = Column(String(32), index=True, nullable=False) # e.g., 'RELIANCE.NS'
+    transaction_type = Column(String(16), nullable=False)  # BUY, SELL, DIVIDEND
+
+    # Precision numeric scales to prevent binary floating-point issues
+    quantity = Column(Numeric(18, 4), nullable=False)
+    price_per_unit = Column(Numeric(18, 4), nullable=False)
+    brokerage_fees = Column(Numeric(10, 2), default=0.00)
+
+    execution_date = Column(Date, nullable=False)   # For FIFO tracking
+    settlement_date = Column(Date, nullable=False)  # For corporate action mapping
+
+    checksum = Column(String(64), unique=True, nullable=False) # Idempotency guard
+
+    portfolio = relationship("Portfolio", back_populates="transactions")
+
+
+class CalculationEngine(Base):
+    __tablename__ = "calculation_engines"
+    """
+    Tracks metadata regarding the current state of the math formulas
+    and libraries used to verify absolute auditability.
+    """
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    engine_version = Column(String(32), nullable=False)    # e.g., 'v1.0.0'
+    math_library_specs = Column(JSONB, nullable=False)      # e.g., {"pyxirr": "0.2.1"}
+    tax_method = Column(String(16), default="FIFO")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshots"
+    """
+    Immutable frozen snapshot of the calculation engine output.
+    """
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    portfolio_id = Column(UUID(as_uuid=True), ForeignKey("portfolios.id"), nullable=False)
+    calculation_engine_id = Column(UUID(as_uuid=True), ForeignKey("calculation_engines.id"), nullable=False)
+    snapshot_timestamp = Column(DateTime, default=datetime.utcnow)
+
+    total_invested_value = Column(Numeric(18, 4), nullable=False)
+    total_current_value = Column(Numeric(18, 4), nullable=False)
+    net_absolute_return = Column(Numeric(18, 4), nullable=False)
+
+    tax_metrics = Column(JSONB, nullable=False)      # Realized STCG, LTCG parameters
+    performance_metrics = Column(JSONB, nullable=False)  # XIRR, Sharpe, Max Drawdown
+
+    portfolio = relationship("Portfolio", back_populates="snapshots")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    action_type = Column(String(64), nullable=False)      # e.g., 'CSV_UPLOAD_INITIATED'
+    target_entity = Column(String(64), nullable=False)     # e.g., 'transaction_ledger'
+    target_entity_id = Column(UUID(as_uuid=True), nullable=False)
+    state_differential = Column(JSONB, nullable=False)     # Historical state modifications
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+
+class AssetPrices(Base):
+    __tablename__ = "asset_prices"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ticker = Column(String(32), index=True, nullable=False)
+    price_date = Column(Date, index=True, nullable=False)
+
+    open_price = Column(Numeric(18, 4), nullable=False)
+    high_price = Column(Numeric(18, 4), nullable=False)
+    low_price = Column(Numeric(18, 4), nullable=False)
+    close_price = Column(Numeric(18, 4), nullable=False)
+    adjusted_close = Column(Numeric(18, 4), nullable=False)
+    volume = Column(BigInteger, nullable=False)
+
+    # Ensure we never insert duplicate prices for the same ticker on the same day
+    __table_args__ = (
+        UniqueConstraint('ticker', 'price_date', name='uq_ticker_date'),
+    )
