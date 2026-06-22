@@ -56,7 +56,7 @@ export default function LoginPage() {
                         <input
                             type="email"
                             required
-                            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-md text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="you@example.com"
@@ -76,9 +76,10 @@ export default function LoginPage() {
                     </div>
 
                     <button
-                        type="submit"
+                        type="button" // Force it to act as a standard button, NOT a form submitter
+                        onClick={handleLogin} // Bind the function directly to the click
                         disabled={isLoading}
-                        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-gray-900 bg-white hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all font-medium disabled:opacity-70"
+                        className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all font-medium disabled:opacity-70"
                     >
                         {isLoading ? 'Signing in...' : 'Sign In'}
                     </button>

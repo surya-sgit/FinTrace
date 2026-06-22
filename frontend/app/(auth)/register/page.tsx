@@ -36,7 +36,15 @@ export default function RegisterPage() {
             // Redirect to the command center
             router.push('/dashboard');
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to create account. Email may already be in use.');
+            // 1. Log the exact error to the browser console so we can see it
+            console.error("FULL API ERROR:", err);
+
+            // 2. Display the actual network error instead of the fallback string
+            setError(
+                err.response?.data?.detail ||
+                err.message ||
+                'An unknown network error occurred.'
+            );
         } finally {
             setIsLoading(false);
         }
@@ -80,7 +88,8 @@ export default function RegisterPage() {
                     </div>
 
                     <button
-                        type="submit"
+                        type="button" // Force it to act as a standard button
+                        onClick={handleRegister} // Bind the function directly
                         disabled={isLoading}
                         className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:ring-4 focus:ring-blue-200 transition-all font-medium disabled:opacity-70"
                     >
