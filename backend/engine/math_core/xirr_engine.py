@@ -9,8 +9,8 @@ from engine.market_data.market_service import MarketDataService
 
 class XIRREngine:
     """
-    Computes the Extended Internal Rate of Return (XIRR) for a portfolio.
-    Translates ledger transactions into a chronological cash flow array,
+    Computes the Extended Internal Rate of Return (XIRR) and verified portfolio metrics.
+    Translates ledger transactions into an accurate chronological cash flow array,
     evaluating current unsold holdings at today's market price.
     """
 
@@ -20,89 +20,110 @@ class XIRREngine:
         self.market_service = MarketDataService(db_session)
 
     def calculate_portfolio_xirr(self) -> Dict[str, any]:
-        # 1. Fetch all transactions
+        # 1. Fetch all transactions sorted by date to process chronologically
         transactions = self.db.query(TransactionLedger).filter(
             TransactionLedger.portfolio_id == self.portfolio_id
-        ).all()
+        ).order_by(TransactionLedger.execution_date.asc()).all()
 
         if not transactions:
-            return {"xirr_percentage": 0.0, "total_invested": 0.0, "current_value": 0.0}
+            return {
+                "xirr_percentage": 0.0,
+                "net_deployed_capital": 0.0,
+                "current_cost_basis": 0.0,
+                "current_value": 0.0,
+                "unrealized_p_and_l": 0.0
+            }
 
-        dates: List[date] = []
-        amounts: List[float] = []
+        xirr_dates: List[date] = []
+        xirr_amounts: List[float] = []
 
-        # Track current inventory to calculate terminal value
-        holdings: Dict[str, Decimal] = {}
-        total_invested = 0.0
+        # Quant tracking dictionaries
+        holdings_qty: Dict[str, Decimal] = {}
+        holdings_cost: Dict[str, Decimal] = {} # Total cost spent on remaining shares
 
-        # 2. Process historical cash flows
+        net_cash_flow = Decimal('0.0000')
+
+        # 2. Process historical cash flows chronologically
         for tx in transactions:
-            qty = Decimal(tx.quantity)
-            price = Decimal(tx.price_per_unit)
-            fees = Decimal(tx.brokerage_fees)
+            qty = Decimal(str(tx.quantity))
+            price = Decimal(str(tx.price_per_unit))
+            fees = Decimal(str(tx.brokerage_fees))
 
-            if tx.ticker not in holdings:
-                holdings[tx.ticker] = Decimal('0.0000')
+            if tx.ticker not in holdings_qty:
+                holdings_qty[tx.ticker] = Decimal('0.0000')
+                holdings_cost[tx.ticker] = Decimal('0.0000')
 
             if tx.transaction_type == "BUY":
-                # Outflow: Money leaves the account to buy the asset + pay fees
-                cash_flow = -float((qty * price) + fees)
-                dates.append(tx.execution_date)
-                amounts.append(cash_flow)
+                # Outflow: Cash leaves portfolio
+                cash_flow_val = (qty * price) + fees
+                net_cash_flow -= cash_flow_val
 
-                holdings[tx.ticker] += qty
-                total_invested += abs(cash_flow)
+                xirr_dates.append(tx.execution_date)
+                xirr_amounts.append(-float(cash_flow_val))
+
+                holdings_qty[tx.ticker] += qty
+                holdings_cost[tx.ticker] += cash_flow_val
 
             elif tx.transaction_type == "SELL":
-                # Inflow: Money enters the account from the sale, minus fees
-                cash_flow = float((qty * price) - fees)
-                dates.append(tx.execution_date)
-                amounts.append(cash_flow)
+                # Inflow: Cash enters portfolio
+                cash_flow_val = (qty * price) - fees
+                net_cash_flow += cash_flow_val
 
-                holdings[tx.ticker] -= qty
+                xirr_dates.append(tx.execution_date)
+                xirr_amounts.append(float(cash_flow_val))
+
+                # Update cost basis proportionally to shares sold (FIFO/Average Cost hybrid assumption)
+                if holdings_qty[tx.ticker] > 0:
+                    avg_price_before_sell = holdings_cost[tx.ticker] / holdings_qty[tx.ticker]
+                    holdings_cost[tx.ticker] -= (qty * avg_price_before_sell)
+
+                holdings_qty[tx.ticker] -= qty
 
             elif tx.transaction_type == "DIVIDEND":
-                # Inflow: Pure cash received
-                cash_flow = float(qty * price)
-                dates.append(tx.execution_date)
-                amounts.append(cash_flow)
+                # Inflow: Pure cash return
+                cash_flow_val = qty * price
+                net_cash_flow += cash_flow_val
 
-        # 3. Process terminal cash flows (Simulated Sell of all remaining assets today)
+                xirr_dates.append(tx.execution_date)
+                xirr_amounts.append(float(cash_flow_val))
+
+        # 3. Process terminal cash flows (Simulated sell off of remaining holdings today)
         today = date.today()
-        current_portfolio_value = 0.0
+        current_portfolio_value = Decimal('0.0000')
+        current_cost_basis = Decimal('0.0000')
 
-        for ticker, remaining_qty in holdings.items():
+        for ticker, remaining_qty in holdings_qty.items():
             if remaining_qty > Decimal('0.0000'):
                 try:
-                    # Fetch the latest available price from our local cache
-                    latest_price = self.market_service.get_price(ticker, today)
-                    asset_value = float(remaining_qty) * latest_price
+                    # Fetch price from your market service cache
+                    latest_price = Decimal(str(self.market_service.get_price(ticker, today)))
+                    asset_value = remaining_qty * latest_price
 
-                    # Log the simulated inflow
-                    dates.append(today)
-                    amounts.append(asset_value)
+                    # Append to copy arrays for XIRR mathematical calculation without mutating master ledger
+                    xirr_dates.append(today)
+                    xirr_amounts.append(float(asset_value))
 
                     current_portfolio_value += asset_value
+                    current_cost_basis += holdings_cost[ticker]
                 except ValueError:
-                    # If we have no market data, we must abort to prevent corrupted XIRR
-                    raise ValueError(f"Missing terminal market data for {ticker}. Cannot compute XIRR.")
+                    raise ValueError(f"Missing terminal market data for {ticker}. Cannot compute accurate metrics.")
 
-        # 4. Compute XIRR
+        # 4. Compute accurate math-convergent XIRR
         try:
-            # pyxirr.xirr returns a decimal multiplier (e.g., 0.15 for 15%)
-            computed_xirr = pyxirr.xirr(dates, amounts)
-
-            # If the calculation fails to converge, pyxirr returns None
-            if computed_xirr is None:
-                xirr_percentage = 0.0
-            else:
-                xirr_percentage = computed_xirr * 100.0
-
+            computed_xirr = pyxirr.xirr(xirr_dates, xirr_amounts)
+            xirr_percentage = computed_xirr * 100.0 if computed_xirr is not None else 0.0
         except Exception:
             xirr_percentage = 0.0
 
+        # Net Deployed Capital is the cumulative net money added to the system
+        # If negative, it means more money was put in than taken out via sells/dividends
+        net_deployed = abs(net_cash_flow) if net_cash_flow < 0 else Decimal('0.0000')
+        unrealized_pl = current_portfolio_value - current_cost_basis
+
         return {
-            "xirr_percentage": round(xirr_percentage, 2),
-            "total_invested": round(total_invested, 2),
-            "current_value": round(current_portfolio_value, 2)
+            "xirr_percentage": round(float(xirr_percentage), 2),
+            "net_deployed_capital": round(float(net_deployed), 2),
+            "current_cost_basis": round(float(current_cost_basis), 2),
+            "current_value": round(float(current_portfolio_value), 2),
+            "unrealized_p_and_l": round(float(unrealized_pl), 2)
         }
