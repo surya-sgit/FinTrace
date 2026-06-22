@@ -1,34 +1,37 @@
-# Environments
+# ---------------------------------------------------------
+# Environment & Secrets (Crucial for Security)
+# ---------------------------------------------------------
 .env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------
+# Backend Ecosystem (Python / FastAPI)
+# ---------------------------------------------------------
 .venv/
 env/
 venv/
-ENV/
-
-# Python Cache & Compiled Files
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-
-# Local Databases
-*.db
 *.sqlite3
 fintrace_local.db
-
-# Logs and Checkpoints
-*.log
-.pytest_cache/
 alembic/.pytest_cache/
 
-# OS Specific (Mac/Windows)
+# ---------------------------------------------------------
+# Frontend Ecosystem (Next.js / React)
+# ---------------------------------------------------------
+node_modules/
+.next/
+out/
+build/
+.swc/
+
+# ---------------------------------------------------------
+# Operating System & IDE
+# ---------------------------------------------------------
 .DS_Store
 Thumbs.db
-
-# IDEs and Editors
 .vscode/
 .idea/
 *.swp
-
-# Docker
-docker-compose.override.yml
