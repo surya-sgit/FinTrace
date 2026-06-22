@@ -315,54 +315,58 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                     {/* Right Column: Visualizations */}
                     <div className="lg:col-span-2 space-y-6">
                         {/* Time-Series Growth (Mocked w/ Inv vs Cur) */}
-                        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-80">
+                        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
                                 <TrendingUp className="w-5 h-5 mr-2 text-blue-600" /> Portfolio Growth
                             </h3>
                             {growthData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="80%">
-                                    <LineChart data={growthData}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                        <XAxis dataKey="name" />
-                                        <YAxis />
-                                        <RechartsTooltip />
-                                        <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={{ r: 6 }} />
-                                    </LineChart>
-                                </ResponsiveContainer>
+                                <div style={{ width: '100%', height: 250 }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={growthData}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                            <XAxis dataKey="name" />
+                                            <YAxis />
+                                            <RechartsTooltip />
+                                            <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={{ r: 6 }} />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
                             ) : (
-                                <div className="h-full flex items-center justify-center text-gray-400">
+                                <div className="h-64 flex items-center justify-center text-gray-400">
                                     No data available to visualize growth.
                                 </div>
                             )}
                         </div>
 
                         {/* Asset Allocation */}
-                        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 h-80">
+                        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
                                 <PieChartIcon className="w-5 h-5 mr-2 text-blue-600" /> Asset Allocation
                             </h3>
                             {pieData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="80%">
-                                    <PieChart>
-                                        <Pie
-                                            data={pieData}
-                                            cx="50%"
-                                            cy="50%"
-                                            innerRadius={60}
-                                            outerRadius={80}
-                                            paddingAngle={5}
-                                            dataKey="value"
-                                        >
-                                            {pieData.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                            ))}
-                                        </Pie>
-                                        <RechartsTooltip />
-                                        <Legend />
-                                    </PieChart>
-                                </ResponsiveContainer>
+                                <div style={{ width: '100%', height: 250 }}>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={pieData}
+                                                cx="50%"
+                                                cy="50%"
+                                                innerRadius={60}
+                                                outerRadius={80}
+                                                paddingAngle={5}
+                                                dataKey="value"
+                                            >
+                                                {pieData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <RechartsTooltip />
+                                            <Legend />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
                             ) : (
-                                <div className="h-full flex items-center justify-center text-gray-400">
+                                <div className="h-64 flex items-center justify-center text-gray-400">
                                     No holdings available to visualize.
                                 </div>
                             )}
