@@ -1,5 +1,6 @@
 # api/main.py
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from api.routers import portfolios, transactions, reports, auth
 
 # Define categorical metadata for the Swagger UI
@@ -40,6 +41,14 @@ app = FastAPI(
         "name": "FinTrace Engineering",
         "email": "engineering@fintrace.dev",
     }
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"], # Permit the Next.js frontend
+    allow_credentials=True,
+    allow_methods=["*"], # Permit all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"], # Permit all headers (including Authorization)
 )
 
 app.include_router(
