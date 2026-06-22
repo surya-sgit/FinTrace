@@ -42,12 +42,8 @@ def create_portfolio(portfolio: schemas.PortfolioCreate, db: Session = Depends(g
     description="Fetches a list of all active portfolios belonging to the currently authenticated user session.",
     response_description="A list of portfolio objects."
 )
-def get_portfolios(db: Session = Depends(get_db)):
-    user = db.query(models.User).first()
-    if not user:
-        return []
-
-    portfolios = db.query(models.Portfolio).filter(models.Portfolio.user_id == user.id).all()
+def get_portfolios(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    portfolios = db.query(models.Portfolio).filter(models.Portfolio.user_id == current_user.id).all()
     return portfolios
 
 @router.get(

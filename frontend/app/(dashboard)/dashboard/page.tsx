@@ -145,7 +145,10 @@ export default function DashboardPage() {
                                 <div className="text-sm text-gray-500 mb-6">
                                     Created: {new Date(portfolio.created_at).toLocaleDateString()}
                                 </div>
-                                <button className="w-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-100 transition-colors font-medium">
+                                <button 
+                                    onClick={() => router.push(`/dashboard/${portfolio.id}`)}
+                                    className="w-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-100 transition-colors font-medium"
+                                >
                                     View Analytics <ArrowRight className="w-4 h-4 ml-2" />
                                 </button>
                             </div>
