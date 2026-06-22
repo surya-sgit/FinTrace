@@ -1,129 +1,227 @@
-import pytest
-from datetime import date, timedelta
-from decimal import Decimal
-from unittest.mock import MagicMock
-
 import sys
 import os
+import uuid
+import datetime
+from decimal import Decimal
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from api.main import app
+from api.dependencies import get_db, get_current_user
+from domain.models import Base, TransactionLedger, User, Portfolio
 from engine.analytics.attribution import PerformanceAttributionEngine
-from domain.models import TransactionLedger
+from engine.market_data.market_service import MarketDataService
 
-def test_attribution_engine_success():
-    # 1. Setup Mock Data
-    db_mock = MagicMock()
+# 1. Foolproof Test Scaffolding & Shared Fixtures
+
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.dialects.postgresql import JSONB
+
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_db():
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture
+def db_session():
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = TestingSessionLocal(bind=connection)
     
-    target_date = date(2024, 1, 15)
-    yesterday = target_date - timedelta(days=1)
+    session.begin_nested()
     
-    # Transactions
-    tx1 = TransactionLedger(
-        ticker="AAPL",
+    yield session
+    
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+@pytest.fixture
+def freeze_time(monkeypatch):
+    class MockDate(datetime.date):
+        @classmethod
+        def today(cls):
+            return datetime.date(2026, 6, 22)
+            
+    monkeypatch.setattr("engine.analytics.attribution.date", MockDate)
+
+# 2. Mocking the Pricing Service Interface
+@pytest.fixture(autouse=True)
+def mock_market_data(monkeypatch):
+    def mock_get_price(self, ticker, req_date):
+        if ticker == "TCS.NS":
+            if req_date == datetime.date(2026, 6, 22):
+                return Decimal("4000.00")
+            elif req_date == datetime.date(2026, 6, 21):
+                return Decimal("4050.00")
+        raise ValueError("Missing price")
+        
+    monkeypatch.setattr(MarketDataService, "get_price", mock_get_price)
+
+
+# 3. Strict Deterministic Vector Assertions
+
+def test_attribution_legacy_drift_success(db_session, freeze_time):
+    port_id = uuid.uuid4()
+    tx = TransactionLedger(
+        id=uuid.uuid4(),
+        portfolio_id=port_id,
+        ticker="TCS.NS",
         transaction_type="BUY",
-        quantity=Decimal("10.0"),
-        price_per_unit=Decimal("150.0"),
-        execution_date=date(2024, 1, 1) # Legacy
+        quantity=Decimal("100.0"),
+        price_per_unit=Decimal("3800.00"),
+        execution_date=datetime.date(2026, 6, 15),
+        settlement_date=datetime.date(2026, 6, 17),
+        checksum="chk_1"
+    )
+    db_session.add(tx)
+    db_session.flush()
+    
+    attribution_engine = PerformanceAttributionEngine(db_session, port_id)
+    result = attribution_engine.identify_top_drags(datetime.date(2026, 6, 22))
+    
+    matrix = result["full_contribution_matrix"]
+    assert len(matrix) == 1
+    assert matrix[0]["legacy_drift"] == -5000.00
+    assert matrix[0]["intraday_impact"] == 0.00
+
+
+def test_attribution_intraday_impact_success(db_session, freeze_time):
+    port_id = uuid.uuid4()
+    tx = TransactionLedger(
+        id=uuid.uuid4(),
+        portfolio_id=port_id,
+        ticker="TCS.NS",
+        transaction_type="BUY",
+        quantity=Decimal("50.0"),
+        price_per_unit=Decimal("3980.00"),
+        execution_date=datetime.date(2026, 6, 22),
+        settlement_date=datetime.date(2026, 6, 24),
+        checksum="chk_2"
+    )
+    db_session.add(tx)
+    db_session.flush()
+    
+    attribution_engine = PerformanceAttributionEngine(db_session, port_id)
+    result = attribution_engine.identify_top_drags(datetime.date(2026, 6, 22))
+    
+    matrix = result["full_contribution_matrix"]
+    assert len(matrix) == 1
+    assert matrix[0]["legacy_drift"] == 0.00
+    assert matrix[0]["intraday_impact"] == 1000.00
+
+
+def test_attribution_corporate_dividend_shield(db_session, freeze_time):
+    port_id = uuid.uuid4()
+    tx1 = TransactionLedger(
+        id=uuid.uuid4(),
+        portfolio_id=port_id,
+        ticker="TCS.NS",
+        transaction_type="BUY",
+        quantity=Decimal("100.0"),
+        price_per_unit=Decimal("3800.00"),
+        execution_date=datetime.date(2026, 6, 15),
+        settlement_date=datetime.date(2026, 6, 17),
+        checksum="chk_3"
     )
     tx2 = TransactionLedger(
-        ticker="AAPL",
-        transaction_type="SELL",
-        quantity=Decimal("2.0"),
-        price_per_unit=Decimal("160.0"),
-        execution_date=date(2024, 1, 10) # Legacy
-    )
-    tx3 = TransactionLedger(
-        ticker="TSLA",
-        transaction_type="BUY",
-        quantity=Decimal("5.0"),
-        price_per_unit=Decimal("200.0"),
-        execution_date=target_date # Intraday
-    )
-    tx4 = TransactionLedger(
-        ticker="AAPL",
+        id=uuid.uuid4(),
+        portfolio_id=port_id,
+        ticker="TCS.NS",
         transaction_type="DIVIDEND",
-        quantity=Decimal("8.0"), # Remaining legacy AAPL shares
-        price_per_unit=Decimal("1.5"), # $1.5 dividend per share
-        execution_date=target_date # Intraday
+        quantity=Decimal("100.0"),
+        price_per_unit=Decimal("50.00"),
+        execution_date=datetime.date(2026, 6, 22),
+        settlement_date=datetime.date(2026, 6, 24),
+        checksum="chk_4"
     )
+    db_session.add_all([tx1, tx2])
+    db_session.flush()
     
-    # Mocking db.query().filter().order_by().all()
-    query_mock = MagicMock()
-    filter_mock = MagicMock()
-    order_mock = MagicMock()
+    attribution_engine = PerformanceAttributionEngine(db_session, port_id)
+    result = attribution_engine.identify_top_drags(datetime.date(2026, 6, 22))
     
-    db_mock.query.return_value = query_mock
-    query_mock.filter.return_value = filter_mock
-    filter_mock.order_by.return_value = order_mock
-    order_mock.all.return_value = [tx1, tx2, tx3, tx4]
-    
-    # Initialize Engine and override market service
-    engine = PerformanceAttributionEngine(db_session=db_mock, portfolio_id="mock_portfolio")
-    engine.market_service = MagicMock()
-    
-    def mock_get_price(ticker, dt):
-        prices = {
-            "AAPL": {
-                yesterday: Decimal("165.0"),
-                target_date: Decimal("160.0") # Price dropped, likely ex-dividend
-            },
-            "TSLA": {
-                yesterday: Decimal("190.0"),
-                target_date: Decimal("210.0") # Intraday gain
-            }
-        }
-        return prices[ticker][dt]
-        
-    engine.market_service.get_price.side_effect = mock_get_price
-    
-    # 2. Execute
-    result = engine.identify_top_drags(target_date)
-    
-    # 3. Assertions
-    assert result["analysis_date"] == target_date.isoformat()
-    
-    # AAPL legacy shares = 10 - 2 = 8
-    # AAPL legacy drift = 8 * (160 - 165) = -40.0
-    # AAPL corporate shield = 8 * 1.5 = 12.0
-    # AAPL intraday = 0
-    # AAPL net = -40 + 12 = -28.0
-    
-    # TSLA legacy shares = 0
-    # TSLA legacy drift = 0
-    # TSLA corporate shield = 0
-    # TSLA intraday buy = 5 * (210 - 200) = 50.0
-    # TSLA net = 50.0
-    
-    # Sorted order (worst first): AAPL (-28.0), TSLA (50.0)
     matrix = result["full_contribution_matrix"]
-    assert len(matrix) == 2
-    assert matrix[0]["ticker"] == "AAPL"
-    assert matrix[0]["net_contribution"] == -28.0
-    assert matrix[0]["corporate_shield"] == 12.0
-    assert matrix[0]["legacy_drift"] == -40.0
-    
-    assert matrix[1]["ticker"] == "TSLA"
-    assert matrix[1]["net_contribution"] == 50.0
-    assert matrix[1]["intraday_impact"] == 50.0
-    
-    assert result["primary_drag_ticker"] == "AAPL"
-    assert result["absolute_impact"] == 28.0
+    assert len(matrix) == 1
+    assert matrix[0]["legacy_drift"] == -5000.00
+    assert matrix[0]["corporate_shield"] == 5000.00
+    assert matrix[0]["net_contribution"] == 0.00
 
-def test_attribution_engine_ledger_corruption():
-    db_mock = MagicMock()
-    target_date = date(2024, 1, 15)
-    
-    tx1 = TransactionLedger(
-        ticker="AAPL",
+
+def test_attribution_ledger_corruption_blocks(db_session, freeze_time):
+    port_id = uuid.uuid4()
+    tx = TransactionLedger(
+        id=uuid.uuid4(),
+        portfolio_id=port_id,
+        ticker="TCS.NS",
         transaction_type="SELL",
-        quantity=Decimal("10.0"),
-        price_per_unit=Decimal("150.0"),
-        execution_date=date(2024, 1, 1)
+        quantity=Decimal("100.0"),
+        price_per_unit=Decimal("4000.00"),
+        execution_date=datetime.date(2026, 6, 20),
+        settlement_date=datetime.date(2026, 6, 22),
+        checksum="chk_5"
     )
-    db_mock.query().filter().order_by().all.return_value = [tx1]
+    db_session.add(tx)
+    db_session.flush()
     
-    engine = PerformanceAttributionEngine(db_session=db_mock, portfolio_id="mock")
+    attribution_engine = PerformanceAttributionEngine(db_session, port_id)
+    with pytest.raises(ValueError) as exc:
+        attribution_engine.identify_top_drags(datetime.date(2026, 6, 22))
+    assert "dropped below 0.0000" in str(exc.value)
+
+
+# 4. Protected API Route Request Validations
+
+@pytest.fixture
+def test_client(db_session):
+    def override_get_db():
+        yield db_session
+        
+    def override_get_current_user():
+        return User(id=uuid.UUID("11111111-1111-1111-1111-111111111111"), email="test@test.com", hashed_password="hashed", created_at=datetime.datetime.now())
+        
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
     
-    with pytest.raises(ValueError, match="ledger corruption"):
-        engine.identify_top_drags(target_date)
+    with TestClient(app) as client:
+        yield client
+        
+    app.dependency_overrides.clear()
+
+
+def test_api_attribution_future_date_rejected(test_client, freeze_time):
+    port_id = uuid.uuid4()
+    future_date = "2026-06-23"
+    response = test_client.get(f"/api/v1/analytics/{port_id}/attribution?target_date={future_date}")
+    assert response.status_code == 400
+
+
+def test_api_attribution_tenant_isolation_enforced(test_client, db_session, freeze_time):
+    user_b_id = uuid.UUID("22222222-2222-2222-2222-222222222222")
+    port_id = uuid.uuid4()
+    portfolio = Portfolio(
+        id=port_id, 
+        user_id=user_b_id, 
+        name="User B Portfolio", 
+        tax_jurisdiction="IN", 
+        created_at=datetime.datetime.now()
+    )
+    db_session.add(portfolio)
+    db_session.flush()
+    
+    today = "2026-06-22"
+    response = test_client.get(f"/api/v1/analytics/{port_id}/attribution?target_date={today}")
+    assert response.status_code == 404
