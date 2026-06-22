@@ -2,17 +2,17 @@
 
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-    ArrowLeft, 
-    UploadCloud, 
-    Download, 
-    Loader2, 
-    TrendingUp, 
-    PieChart as PieChartIcon, 
-    Activity, 
-    FileText 
+import {
+    ArrowLeft,
+    UploadCloud,
+    Download,
+    Loader2,
+    TrendingUp,
+    PieChart as PieChartIcon,
+    Activity,
+    FileText
 } from 'lucide-react';
-import { 
+import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
 } from 'recharts';
@@ -74,7 +74,6 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                 setXirrReport(xirrRes.data);
                 setTaxReport(taxRes.data);
             } catch (err) {
-                // It's okay if reports fail (e.g. no transactions yet)
                 console.log("No data for reports yet or engine error.", err);
             }
 
@@ -103,7 +102,6 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                 },
             });
             setUploadSuccess('Transactions successfully ingested and market data synced.');
-            // Refresh reports
             fetchData();
         } catch (err: any) {
             let errorMsg = 'Failed to upload CSV.';
@@ -117,7 +115,6 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
             setError(errorMsg);
         } finally {
             setIsUploading(false);
-            // reset file input
             e.target.value = '';
         }
     };
@@ -129,7 +126,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
             const response = await api.get(`/portfolios/${portfolio_id}/tax-report/pdf`, {
                 responseType: 'blob',
             });
-            
+
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
@@ -176,16 +173,9 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
         return 'text-gray-900';
     };
 
-    // Prepare Pie Chart Data
-    const pieData = taxReport?.current_holdings 
+    const pieData = taxReport?.current_holdings
         ? Object.entries(taxReport.current_holdings).map(([name, value]) => ({ name, value: Number(value) })).filter(item => item.value > 0)
         : [];
-
-    // Mock Time-Series Data since API doesn't provide it yet
-    const growthData = xirrReport ? [
-        { name: 'Initial', value: xirrReport.total_invested_capital },
-        { name: 'Current', value: xirrReport.current_market_value }
-    ] : [];
 
     return (
         <div className="min-h-screen bg-gray-50 relative">
@@ -217,7 +207,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                    {/* Left Column: Stats & Upload */}
+                    {/* Left Column: Stats, Upload & Tax Hub */}
                     <div className="lg:col-span-1 space-y-6">
                         {/* Stats Card */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
@@ -267,17 +257,17 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                                         </>
                                     )}
                                 </div>
-                                <input 
-                                    type="file" 
-                                    accept=".csv" 
-                                    className="hidden" 
-                                    onChange={handleFileUpload} 
-                                    disabled={isUploading} 
+                                <input
+                                    type="file"
+                                    accept=".csv"
+                                    className="hidden"
+                                    onChange={handleFileUpload}
+                                    disabled={isUploading}
                                 />
                             </label>
                         </div>
 
-                        {/* Tax Hub */}
+                        {/* Tax Compliance Hub */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
                                 <FileText className="w-5 h-5 mr-2 text-blue-600" /> Tax Compliance
@@ -314,23 +304,24 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
 
                     {/* Right Column: Visualizations */}
                     <div className="lg:col-span-2 space-y-6">
-                        {/* Time-Series Growth (Mocked w/ Inv vs Cur) */}
+                        {/* Time-Series Growth via PerformanceChart */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
                                 <TrendingUp className="w-5 h-5 mr-2 text-blue-600" /> Portfolio Growth
                             </h3>
-                            {growthData.length > 0 ? (
-                                <div style={{ width: '100%', height: 250 }}>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={growthData}>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                            <XAxis dataKey="name" />
-                                            <YAxis />
-                                            <RechartsTooltip />
-                                            <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} dot={{ r: 6 }} />
-                                        </LineChart>
-                                    </ResponsiveContainer>
-                                </div>
+                            {xirrReport ? (
+                                <PerformanceChart
+                                    data={[
+                                        {
+                                            date: portfolio.created_at || new Date().toISOString().split('T')[0],
+                                            valuation: xirrReport.total_invested_capital
+                                        },
+                                        {
+                                            date: new Date().toISOString().split('T')[0],
+                                            valuation: xirrReport.current_market_value
+                                        }
+                                    ]}
+                                />
                             ) : (
                                 <div className="h-64 flex items-center justify-center text-gray-400">
                                     No data available to visualize growth.
@@ -374,6 +365,75 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                     </div>
                 </div>
             </main>
+        </div>
+    );
+}
+
+// ==========================================
+// SUB-COMPONENTS: PERFORMANCE CHART ENGINE
+// ==========================================
+
+interface ChartDataPoint {
+    date: string;
+    valuation: number;
+}
+
+interface PerformanceChartProps {
+    data: ChartDataPoint[];
+}
+
+function PerformanceChart({ data }: PerformanceChartProps) {
+    const formatXAxisDate = (dateStr: string) => {
+        if (!dateStr) return '';
+        try {
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        } catch {
+            return dateStr;
+        }
+    };
+
+    const formatCurrency = (value: number) => {
+        return new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            maximumFractionDigits: 2
+        }).format(value);
+    };
+
+    return (
+        <div className="w-full h-[250px]">
+            <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis
+                        dataKey="date"
+                        tickFormatter={formatXAxisDate}
+                        stroke="#9ca3af"
+                        fontSize={12}
+                        tickLine={false}
+                    />
+                    <YAxis
+                        stroke="#9ca3af"
+                        fontSize={12}
+                        tickLine={false}
+                        tickFormatter={(value) => `₹${value.toLocaleString('en-IN')}`}
+                    />
+                    <RechartsTooltip
+                        formatter={(value: number) => [formatCurrency(value), 'Valuation']}
+                        labelFormatter={(label) => `Date: ${new Date(label).toLocaleDateString('en-IN')}`}
+                        contentStyle={{ backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #e5e7eb' }}
+                    />
+                    <Line
+                        type="monotone"
+                        dataKey="valuation"
+                        stroke="#2563eb"
+                        strokeWidth={2.5}
+                        dot={{ r: 4, stroke: '#2563eb', strokeWidth: 1, fill: '#ffffff' }}
+                        activeDot={{ r: 6 }}
+                    />
+                </LineChart>
+            </ResponsiveContainer>
         </div>
     );
 }

@@ -69,10 +69,11 @@ def generate_xirr_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db),
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="XIRR calculation failed.")
 
+    # Map the accurate 'current_cost_basis' to your schema's total_invested_capital field
     return schemas.XIRRReportResponse(
         portfolio_id=portfolio_id,
         xirr_percentage=report_data["xirr_percentage"],
-        total_invested_capital=report_data["total_invested"],
+        total_invested_capital=report_data["current_cost_basis"], # Updated from "total_invested"
         current_market_value=report_data["current_value"]
     )
 
