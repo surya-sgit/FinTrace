@@ -1,7 +1,13 @@
 # api/main.py
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routers import portfolios, transactions, reports, auth
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
+
+from api.routers import portfolios, transactions, reports, auth, copilot
+from engine.live_pricing import scheduled_market_data_update
 
 # Define categorical metadata for the Swagger UI
 tags_metadata = [
@@ -27,6 +33,19 @@ tags_metadata = [
     }
 ]
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        scheduled_market_data_update,
+        trigger=CronTrigger(day_of_week='mon-fri', hour=15, minute=45, timezone=pytz.timezone('Asia/Kolkata')),
+        id='market_data_job',
+        replace_existing=True
+    )
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
 app = FastAPI(
     title="FinTrace Quantitative Engine",
     description="""
@@ -40,7 +59,8 @@ app = FastAPI(
     contact={
         "name": "FinTrace Engineering",
         "email": "engineering@fintrace.dev",
-    }
+    },
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -73,6 +93,12 @@ app.include_router(
     reports.router,
     prefix="/api/v1/portfolios",
     tags=["Reports"]
+)
+
+app.include_router(
+    copilot.router,
+    prefix="/api/v1/copilot",
+    tags=["Copilot"]
 )
 
 @app.get("/health", tags=["System"], summary="Verify API Gateway health")

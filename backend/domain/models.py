@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Numeric, DateTime, Date, ForeignKey, BigInteger, UniqueConstraint
+from sqlalchemy import Column, String, Numeric, DateTime, Date, ForeignKey, BigInteger, UniqueConstraint, Float
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.sql import func
 
 Base = declarative_base()
 
@@ -118,3 +119,17 @@ class AssetPrices(Base):
     __table_args__ = (
         UniqueConstraint('ticker', 'price_date', name='uq_ticker_date'),
     )
+
+
+class MarketPrice(Base):
+    __tablename__ = "market_prices"
+
+    # We use the ticker as the primary key since we only need the latest price
+    ticker = Column(String, primary_key=True, index=True)
+    current_price = Column(Float, nullable=False)
+
+    # Automatically updates the timestamp whenever the price changes
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Tracks if the data came from "ALPHA_VANTAGE" or "YFINANCE"
+    data_source = Column(String, nullable=False)
