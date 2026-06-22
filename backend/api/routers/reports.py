@@ -74,7 +74,8 @@ def generate_xirr_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db),
         portfolio_id=portfolio_id,
         xirr_percentage=report_data["xirr_percentage"],
         total_invested_capital=report_data["current_cost_basis"], # Updated from "total_invested"
-        current_market_value=report_data["current_value"]
+        current_market_value=report_data["current_value"],
+        valuation_history=report_data["valuation_history"]
     )
 
 

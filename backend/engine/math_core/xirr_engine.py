@@ -108,6 +108,33 @@ class XIRREngine:
                 except ValueError:
                     raise ValueError(f"Missing terminal market data for {ticker}. Cannot compute accurate metrics.")
 
+        # NEW: Build a clean historical timeline directly using the dates from the CSV transactions
+        valuation_history = []
+        running_cost = Decimal('0.0000')
+        
+        # Capture historical milestone dates from your ledger
+        for tx in transactions:
+            qty = Decimal(str(tx.quantity))
+            price = Decimal(str(tx.price_per_unit))
+            fees = Decimal(str(tx.brokerage_fees))
+            
+            if tx.transaction_type == "BUY":
+                running_cost += (qty * price) + fees
+            elif tx.transaction_type == "SELL":
+                # Basic representation of reduction on transaction date
+                running_cost -= (qty * price) - fees
+                
+            valuation_history.append({
+                "date": tx.execution_date.isoformat(),
+                "valuation": round(float(running_cost), 2)
+            })
+
+        # Append today's final terminal value as the last point
+        valuation_history.append({
+            "date": today.isoformat(),
+            "valuation": round(float(current_portfolio_value), 2)
+        })
+
         # 4. Compute accurate math-convergent XIRR
         try:
             computed_xirr = pyxirr.xirr(xirr_dates, xirr_amounts)
@@ -125,5 +152,6 @@ class XIRREngine:
             "net_deployed_capital": round(float(net_deployed), 2),
             "current_cost_basis": round(float(current_cost_basis), 2),
             "current_value": round(float(current_portfolio_value), 2),
-            "unrealized_p_and_l": round(float(unrealized_pl), 2)
+            "unrealized_p_and_l": round(float(unrealized_pl), 2),
+            "valuation_history": valuation_history
         }

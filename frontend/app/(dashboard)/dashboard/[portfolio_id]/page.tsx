@@ -25,10 +25,16 @@ interface Portfolio {
     created_at: string;
 }
 
+interface ValuationPoint {
+    date: string;
+    valuation: number;
+}
+
 interface XIRRReport {
     xirr_percentage: number;
     total_invested_capital: number;
     current_market_value: number;
+    valuation_history?: ValuationPoint[];
 }
 
 interface TaxReport {
@@ -309,22 +315,16 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
                                 <TrendingUp className="w-5 h-5 mr-2 text-blue-600" /> Portfolio Growth
                             </h3>
-                            {xirrReport ? (
-                                <PerformanceChart
-                                    data={[
-                                        {
-                                            date: portfolio.created_at || new Date().toISOString().split('T')[0],
-                                            valuation: xirrReport.total_invested_capital
-                                        },
-                                        {
-                                            date: new Date().toISOString().split('T')[0],
-                                            valuation: xirrReport.current_market_value
-                                        }
-                                    ]}
+                            {xirrReport && xirrReport.valuation_history && xirrReport.valuation_history.length > 0 ? (
+                                <PerformanceChart 
+                                    data={xirrReport.valuation_history.map(pt => ({
+                                        date: pt.date,
+                                        valuation: pt.valuation
+                                    }))} 
                                 />
                             ) : (
                                 <div className="h-64 flex items-center justify-center text-gray-400">
-                                    No data available to visualize growth.
+                                    No transaction records found to process historical timeline.
                                 </div>
                             )}
                         </div>
