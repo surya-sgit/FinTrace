@@ -61,15 +61,18 @@ def freeze_time(monkeypatch):
 # 2. Mocking the Pricing Service Interface
 @pytest.fixture(autouse=True)
 def mock_market_data(monkeypatch):
-    def mock_get_price(self, ticker, req_date):
-        if ticker == "TCS.NS":
-            if req_date == datetime.date(2026, 6, 22):
-                return Decimal("4000.00")
-            elif req_date == datetime.date(2026, 6, 21):
-                return Decimal("4050.00")
-        raise ValueError("Missing price")
+    def mock_get_prices_bulk(self, tickers, target_dates):
+        result = {d: {} for d in target_dates}
+        for d in target_dates:
+            for ticker in tickers:
+                if ticker == "TCS.NS":
+                    if d == datetime.date(2026, 6, 22):
+                        result[d][ticker] = 4000.00
+                    elif d == datetime.date(2026, 6, 21):
+                        result[d][ticker] = 4050.00
+        return result
         
-    monkeypatch.setattr(MarketDataService, "get_price", mock_get_price)
+    monkeypatch.setattr(MarketDataService, "get_prices_bulk", mock_get_prices_bulk)
 
 
 # 3. Strict Deterministic Vector Assertions
@@ -204,7 +207,7 @@ def test_client(db_session):
 
 def test_api_attribution_future_date_rejected(test_client, freeze_time):
     port_id = uuid.uuid4()
-    future_date = "2026-06-23"
+    future_date = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
     response = test_client.get(f"/api/v1/analytics/{port_id}/attribution?target_date={future_date}")
     assert response.status_code == 400
 

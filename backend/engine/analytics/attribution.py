@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
-from domain.models import TransactionLedger
+from domain.models import TransactionLedger, PortfolioPositionSnapshot
 from engine.market_data.market_service import MarketDataService
 
 class PerformanceAttributionEngine:
@@ -23,17 +23,35 @@ class PerformanceAttributionEngine:
         Analyzes the portfolio on the target_date to break down the valuation variance contribution.
         Returns a sorted matrix of assets and their net contribution to the portfolio's daily drift.
         """
-        # Fetch all transactions strictly before or on the target date, sorted chronologically
-        transactions = self.db.query(TransactionLedger).filter(
-            TransactionLedger.portfolio_id == self.portfolio_id,
-            TransactionLedger.execution_date <= target_date
-        ).order_by(TransactionLedger.execution_date.asc()).all()
-        
         yesterday = target_date - timedelta(days=1)
         
         legacy_positions: Dict[str, Decimal] = {}
         running_positions: Dict[str, Decimal] = {}
         intraday_trades: List[TransactionLedger] = []
+        
+        # 1. Attempt to fetch latest position snapshot strictly before target_date
+        latest_snapshot = self.db.query(PortfolioPositionSnapshot).filter(
+            PortfolioPositionSnapshot.portfolio_id == self.portfolio_id,
+            PortfolioPositionSnapshot.snapshot_date <= yesterday
+        ).order_by(PortfolioPositionSnapshot.snapshot_date.desc()).first()
+        
+        last_snapshot_date = None
+        if latest_snapshot:
+            last_snapshot_date = latest_snapshot.snapshot_date
+            for ticker, qty_str in latest_snapshot.positions.items():
+                qty = Decimal(qty_str)
+                running_positions[ticker] = qty
+                legacy_positions[ticker] = qty
+        
+        # 2. Fetch transactions after the snapshot, sorted chronologically
+        tx_query = self.db.query(TransactionLedger).filter(
+            TransactionLedger.portfolio_id == self.portfolio_id,
+            TransactionLedger.execution_date <= target_date
+        )
+        if last_snapshot_date:
+            tx_query = tx_query.filter(TransactionLedger.execution_date > last_snapshot_date)
+            
+        transactions = tx_query.order_by(TransactionLedger.execution_date.asc()).all()
         
         # Chronological processing to build Q_open and ensure ledger integrity
         for tx in transactions:
@@ -69,22 +87,21 @@ class PerformanceAttributionEngine:
         for tx in intraday_trades:
             relevant_tickers.add(tx.ticker)
             
-        # Fetch high-precision pricing snapshots
-        prices_today: Dict[str, Decimal] = {}
-        prices_yesterday: Dict[str, Decimal] = {}
+        # Fetch high-precision pricing snapshots in bulk
+        relevant_tickers_list = list(relevant_tickers)
+        bulk_prices = self.market_service.get_prices_bulk(relevant_tickers_list, [target_date, yesterday])
         
-        for ticker in relevant_tickers:
-            try:
-                p_today = Decimal(str(self.market_service.get_price(ticker, target_date)))
-                prices_today[ticker] = p_today
-            except Exception:
+        prices_today = bulk_prices.get(target_date, {})
+        prices_yesterday = bulk_prices.get(yesterday, {})
+        
+        for ticker in relevant_tickers_list:
+            if ticker not in prices_today:
                 raise ValueError(f"Missing market data for {ticker} on {target_date}. Cannot compute attribution.")
-                
-            try:
-                p_yday = Decimal(str(self.market_service.get_price(ticker, yesterday)))
-                prices_yesterday[ticker] = p_yday
-            except Exception:
+            if ticker not in prices_yesterday:
                 raise ValueError(f"Missing market data for {ticker} on {yesterday}. Cannot compute attribution.")
+                
+            prices_today[ticker] = Decimal(str(prices_today[ticker]))
+            prices_yesterday[ticker] = Decimal(str(prices_yesterday[ticker]))
 
         # Compute the mathematical vectors
         contribution_matrix = []
@@ -118,18 +135,18 @@ class PerformanceAttributionEngine:
             
             contribution_matrix.append({
                 "ticker": ticker,
-                "shares_held": float(running_positions.get(ticker, Decimal('0.0000'))),
-                "legacy_drift": float(v_legacy),
-                "intraday_impact": float(v_intraday),
-                "corporate_shield": float(v_corporate),
-                "net_contribution": float(net_contribution)
+                "shares_held": running_positions.get(ticker, Decimal('0.0000')),
+                "legacy_drift": v_legacy,
+                "intraday_impact": v_intraday,
+                "corporate_shield": v_corporate,
+                "net_contribution": net_contribution
             })
             
         # Clear Sorted Matrix Output (ascending by net_contribution)
         contribution_matrix.sort(key=lambda x: x["net_contribution"])
         
         primary_drag_ticker = None
-        absolute_impact = 0.0
+        absolute_impact = Decimal('0.0000')
         
         if contribution_matrix and contribution_matrix[0]["net_contribution"] < 0:
             primary_drag_ticker = contribution_matrix[0]["ticker"]
@@ -138,6 +155,6 @@ class PerformanceAttributionEngine:
         return {
             "analysis_date": target_date.isoformat(),
             "primary_drag_ticker": primary_drag_ticker,
-            "absolute_impact": float(absolute_impact),
+            "absolute_impact": absolute_impact,
             "full_contribution_matrix": contribution_matrix
         }

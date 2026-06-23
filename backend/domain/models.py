@@ -88,6 +88,23 @@ class PortfolioSnapshot(Base):
     portfolio = relationship("Portfolio", back_populates="snapshots")
 
 
+class PortfolioPositionSnapshot(Base):
+    __tablename__ = "portfolio_position_snapshots"
+    """
+    Daily materialized view of asset quantities to prevent O(N) ledger replay.
+    """
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    portfolio_id = Column(UUID(as_uuid=True), ForeignKey("portfolios.id"), nullable=False)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    
+    # Store ticker -> quantity mappings (e.g. {"TCS.NS": "100.0000"})
+    positions = Column(JSONB, nullable=False) 
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'snapshot_date', name='uq_portfolio_snapshot_date'),
+    )
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
