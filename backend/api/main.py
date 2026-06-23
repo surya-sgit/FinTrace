@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
-from api.routers import portfolios, transactions, reports, auth, copilot
+from api.routers import portfolios, transactions, reports, auth, copilot, analytics
 from engine.live_pricing import scheduled_market_data_update
 
 # Define categorical metadata for the Swagger UI
@@ -99,6 +99,12 @@ app.include_router(
     copilot.router,
     prefix="/api/v1/copilot",
     tags=["Copilot"]
+)
+
+app.include_router(
+    analytics.router,
+    prefix="/api/v1/analytics",
+    tags=["Advanced Analytics"]
 )
 
 @app.get("/health", tags=["System"], summary="Verify API Gateway health")
