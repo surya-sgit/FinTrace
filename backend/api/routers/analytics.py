@@ -51,3 +51,40 @@ def get_portfolio_attribution(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e)
         )
+
+from engine.analytics.long_term_attribution import LongTermAttributionEngine
+from typing import Optional
+
+@router.get(
+    "/{portfolio_id}/long-term-attribution",
+    response_model=schemas.LongTermAttributionResponse,
+    summary="Generate Long-Term Value Investing Analytics",
+    description="Calculates Multi-Period Organic Variation, Brinson-Fachler Decomposition, and MWR."
+)
+def get_long_term_attribution(
+    portfolio_id: uuid.UUID,
+    start_date: Optional[datetime.date] = None,
+    end_date: Optional[datetime.date] = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    portfolio = db.query(models.Portfolio).filter(
+        models.Portfolio.id == portfolio_id,
+        models.Portfolio.user_id == current_user.id
+    ).first()
+    
+    if not portfolio:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found or access denied."
+        )
+
+    try:
+        engine = LongTermAttributionEngine(db_session=db, portfolio_id=str(portfolio_id))
+        result = engine.execute_full_long_term_analysis(start_date=start_date, end_date=end_date)
+        return schemas.LongTermAttributionResponse(**result)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
