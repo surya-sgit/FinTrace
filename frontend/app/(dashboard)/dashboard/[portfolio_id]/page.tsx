@@ -532,6 +532,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                             )}
                         </div>
                     </div>
+                    </div>
                 )}
 
                 {activeTab === 'short-term' && (
@@ -667,7 +668,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                             <XAxis dataKey="sector" fontSize={12} />
                                             <YAxis tickFormatter={(val) => `${(val * 100).toFixed(1)}%`} fontSize={12} />
-                                            <RechartsTooltip formatter={(val: number) => `${(val * 100).toFixed(2)}%`} />
+                                            <RechartsTooltip formatter={(val: any) => `${(Number(val) * 100).toFixed(2)}%`} />
                                             <Legend />
                                             <Bar dataKey="allocation_effect" fill="#8884d8" name="Allocation Effect" />
                                             <Bar dataKey="selection_effect" fill="#82ca9d" name="Selection Effect" />
@@ -701,7 +702,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                                             <XAxis type="number" tickFormatter={(val) => `${(val * 100).toFixed(0)}%`} fontSize={12} />
                                             <YAxis dataKey="ticker" type="category" fontSize={12} />
-                                            <RechartsTooltip formatter={(val: number) => `${(val * 100).toFixed(2)}%`} />
+                                            <RechartsTooltip formatter={(val: any) => `${(Number(val) * 100).toFixed(2)}%`} />
                                             <Legend />
                                             <Bar dataKey="standalone_xirr" fill="#3b82f6" name="Standalone XIRR" />
                                         </BarChart>
