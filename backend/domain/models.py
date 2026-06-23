@@ -150,3 +150,48 @@ class MarketPrice(Base):
 
     # Tracks if the data came from "ALPHA_VANTAGE" or "YFINANCE"
     data_source = Column(String, nullable=False)
+
+
+class AssetMetadata(Base):
+    __tablename__ = "asset_metadata"
+    """
+    Maps tickers to their respective macroeconomic sectors and industries for Brinson-Fachler attribution.
+    """
+    ticker = Column(String(32), primary_key=True, index=True)
+    sector = Column(String(64), nullable=False)   # e.g., 'Information Technology'
+    industry = Column(String(64), nullable=False) # e.g., 'Software & Services'
+
+
+class BenchmarkIndex(Base):
+    __tablename__ = "benchmark_index"
+    """
+    Stores historical daily or monthly sector weights and returns for a macro benchmark (e.g., Nifty 500).
+    """
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    benchmark_name = Column(String(64), index=True, nullable=False)
+    price_date = Column(Date, index=True, nullable=False)
+    
+    sector = Column(String(64), nullable=False)
+    sector_weight = Column(Numeric(18, 4), nullable=False)  # Weight of the sector in the index (e.g. 0.15 for 15%)
+    sector_return = Column(Numeric(18, 4), nullable=False)  # Return of the sector over the period
+    is_tri = Column(String(5), default="True") 
+
+    __table_args__ = (
+        UniqueConstraint('benchmark_name', 'price_date', 'sector', name='uq_benchmark_date_sector'),
+    )
+
+
+class CorporateActionEvent(Base):
+    __tablename__ = "corporate_action_events"
+    """
+    Tracks structural corporate actions (SPLIT, BONUS) that require historical price and quantity adjustments.
+    """
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticker = Column(String(32), index=True, nullable=False)
+    ex_date = Column(Date, index=True, nullable=False)
+    action_type = Column(String(16), nullable=False) # 'SPLIT' or 'BONUS'
+    adjustment_factor = Column(Numeric(18, 4), nullable=False) # e.g. 10.0 for a 1:10 split
+    
+    __table_args__ = (
+        UniqueConstraint('ticker', 'ex_date', 'action_type', name='uq_corp_action_ticker_date'),
+    )

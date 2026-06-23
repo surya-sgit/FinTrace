@@ -12,6 +12,8 @@ class TransactionType(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
     DIVIDEND = "DIVIDEND"
+    DEPOSIT = "DEPOSIT"
+    WITHDRAWAL = "WITHDRAWAL"
 
 class TaxJurisdiction(str, Enum):
     IN = "IN"
@@ -160,3 +162,26 @@ class PerformanceAttributionResponse(BaseModel):
     primary_drag_ticker: Optional[str] = None
     absolute_impact: Decimal
     full_contribution_matrix: List[DragContribution]
+
+class OrganicVariationResponse(BaseModel):
+    ticker: str
+    net_organic_contribution: Decimal
+
+class BrinsonFachlerResponse(BaseModel):
+    sector: str
+    allocation_effect: Decimal
+    selection_effect: Decimal
+    interaction_effect: Decimal
+
+class MWRSlicingResponse(BaseModel):
+    ticker: str
+    standalone_xirr: float
+    mwr_contribution: Decimal
+
+class LongTermAttributionResponse(BaseModel):
+    portfolio_id: uuid.UUID
+    start_date: date
+    end_date: date
+    organic_variation: List[OrganicVariationResponse]
+    brinson_fachler: List[BrinsonFachlerResponse]
+    mwr_slicing: List[MWRSlicingResponse]

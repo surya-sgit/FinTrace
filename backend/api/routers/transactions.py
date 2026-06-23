@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from db.session import get_db
 from domain import models, schemas
 from engine.market_data.market_service import MarketDataService
+from engine.market_data.corporate_actions import CorporateActionService
 from api.dependencies import get_current_user
 
 router = APIRouter()
@@ -96,8 +97,11 @@ async def upload_transaction_ledger(
     earliest_date = min(t.execution_date for t in transaction_objs)
     today = date.today()
     market_service = MarketDataService(db)
+    corp_service = CorporateActionService(db)
+
     for ticker in unique_tickers:
         market_service.fetch_historical_prices(ticker, earliest_date, today)
+        corp_service.sync_splits_for_ticker(ticker)
 
     return {
         "status": "success",

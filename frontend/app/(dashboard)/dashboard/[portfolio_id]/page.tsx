@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, Legend
+    PieChart, Pie, Cell, Legend, BarChart, Bar
 } from 'recharts';
 import api from '@/lib/api';
 
@@ -59,6 +59,33 @@ interface AttributionReport {
     full_contribution_matrix: DragRow[];
 }
 
+interface OrganicVariationRow {
+    ticker: string;
+    net_organic_contribution: number;
+}
+
+interface BrinsonFachlerRow {
+    sector: string;
+    allocation_effect: number;
+    selection_effect: number;
+    interaction_effect: number;
+}
+
+interface MWRSlicingRow {
+    ticker: string;
+    standalone_xirr: number;
+    mwr_contribution: number;
+}
+
+interface LongTermAttributionReport {
+    portfolio_id: string;
+    start_date: string;
+    end_date: string;
+    organic_variation: OrganicVariationRow[];
+    brinson_fachler: BrinsonFachlerRow[];
+    mwr_slicing: MWRSlicingRow[];
+}
+
 const COLORS = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe'];
 
 export default function PortfolioDetailPage({ params }: { params: Promise<{ portfolio_id: string }> }) {
@@ -82,6 +109,12 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
     const [attributionData, setAttributionData] = useState<AttributionReport | null>(null);
     const [isAttributionLoading, setIsAttributionLoading] = useState(false);
     const [attributionError, setAttributionError] = useState('');
+
+    const [ltData, setLtData] = useState<LongTermAttributionReport | null>(null);
+    const [isLtLoading, setIsLtLoading] = useState(false);
+    const [ltError, setLtError] = useState('');
+
+    const [activeTab, setActiveTab] = useState<'overview' | 'short-term' | 'long-term'>('overview');
 
     useEffect(() => {
         fetchData();
@@ -118,6 +151,18 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                 setAttributionData(null);
             } finally {
                 setIsAttributionLoading(false);
+            }
+
+            // 4. Fetch Long Term Analytics
+            setIsLtLoading(true);
+            setLtError('');
+            try {
+                const ltRes = await api.get(`/analytics/${portfolio_id}/long-term-attribution`);
+                setLtData(ltRes.data);
+            } catch (err: any) {
+                setLtError('Failed to load long term analytics.');
+            } finally {
+                setIsLtLoading(false);
             }
 
         } catch (err: any) {
@@ -285,9 +330,33 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                    {/* Left Column: Stats, Upload & Tax Hub */}
-                    <div className="lg:col-span-1 space-y-6">
+                <div className="mb-6 border-b border-gray-200">
+                    <nav className="-mb-px flex space-x-8">
+                        <button
+                            onClick={() => setActiveTab('overview')}
+                            className={`${activeTab === 'overview' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm`}
+                        >
+                            Overview
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('short-term')}
+                            className={`${activeTab === 'short-term' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm`}
+                        >
+                            Short-Term Attribution
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('long-term')}
+                            className={`${activeTab === 'long-term' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm`}
+                        >
+                            Long-Term Value
+                        </button>
+                    </nav>
+                </div>
+
+                {activeTab === 'overview' && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                        {/* Left Column: Stats, Upload & Tax Hub */}
+                        <div className="lg:col-span-1 space-y-6">
                         {/* Stats Card */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
@@ -442,7 +511,11 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                                 </div>
                             )}
                         </div>
+                    </div>
+                )}
 
+                {activeTab === 'short-term' && (
+                    <div className="space-y-6">
                         {/* Performance Attribution Panel */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <div className="flex justify-between items-center mb-4">
@@ -550,7 +623,74 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                             )}
                         </div>
                     </div>
-                </div>
+                )}
+
+                {activeTab === 'long-term' && (
+                    <div className="space-y-6">
+                        {/* Brinson Fachler Sector Attribution */}
+                        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                            <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
+                                <Activity className="w-5 h-5 mr-2 text-blue-600" /> Macro Brinson-Fachler Decomposition
+                            </h3>
+                            {isLtLoading ? (
+                                <div className="flex justify-center items-center h-32">
+                                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                                </div>
+                            ) : ltError ? (
+                                <div className="text-sm text-red-600 p-4 bg-red-50 rounded-md border border-red-100">
+                                    {ltError}
+                                </div>
+                            ) : ltData && ltData.brinson_fachler.length > 0 ? (
+                                <div className="w-full h-[300px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={ltData.brinson_fachler} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                            <XAxis dataKey="sector" fontSize={12} />
+                                            <YAxis tickFormatter={(val) => `${(val * 100).toFixed(1)}%`} fontSize={12} />
+                                            <RechartsTooltip formatter={(val: number) => `${(val * 100).toFixed(2)}%`} />
+                                            <Legend />
+                                            <Bar dataKey="allocation_effect" fill="#8884d8" name="Allocation Effect" />
+                                            <Bar dataKey="selection_effect" fill="#82ca9d" name="Selection Effect" />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : (
+                                <div className="h-64 flex items-center justify-center text-gray-400">
+                                    No macro benchmark data available to decompose sector returns.
+                                </div>
+                            )}
+                        </div>
+
+                        {/* MWR Contribution (Cash Drag) */}
+                        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 mt-6">
+                            <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
+                                <PieChartIcon className="w-5 h-5 mr-2 text-blue-600" /> Asset & Cash Drag MWR Slicing
+                            </h3>
+                            {isLtLoading ? (
+                                <div className="flex justify-center items-center h-32">
+                                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                                </div>
+                            ) : ltData && ltData.mwr_slicing.length > 0 ? (
+                                <div className="w-full h-[300px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart 
+                                            data={ltData.mwr_slicing.sort((a,b) => b.standalone_xirr - a.standalone_xirr)} 
+                                            layout="vertical"
+                                            margin={{ top: 20, right: 30, left: 40, bottom: 5 }}
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                                            <XAxis type="number" tickFormatter={(val) => `${(val * 100).toFixed(0)}%`} fontSize={12} />
+                                            <YAxis dataKey="ticker" type="category" fontSize={12} />
+                                            <RechartsTooltip formatter={(val: number) => `${(val * 100).toFixed(2)}%`} />
+                                            <Legend />
+                                            <Bar dataKey="standalone_xirr" fill="#3b82f6" name="Standalone XIRR" />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                )}
             </main>
         </div>
     );
