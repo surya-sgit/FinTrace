@@ -6,7 +6,8 @@ import {
     TaxReport,
     AttributionReport,
     LongTermAttributionReport,
-    RiskMetricsReport
+    RiskMetricsReport,
+    BehavioralAnalysisReport
 } from '@/types/portfolio';
 
 export function usePortfolioData(portfolioId: string, selectedDate: string) {
@@ -27,6 +28,10 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
     const [riskMetrics, setRiskMetrics] = useState<RiskMetricsReport | null>(null);
     const [isRiskLoading, setIsRiskLoading] = useState(false);
     const [riskError, setRiskError] = useState('');
+
+    const [behavioralData, setBehavioralData] = useState<BehavioralAnalysisReport | null>(null);
+    const [isBehavioralLoading, setIsBehavioralLoading] = useState(false);
+    const [behavioralError, setBehavioralError] = useState('');
 
     useEffect(() => {
         if (portfolioId) {
@@ -91,6 +96,18 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
                 setIsRiskLoading(false);
             }
 
+            // 5. Fetch Behavioral Analytics
+            setIsBehavioralLoading(true);
+            setBehavioralError('');
+            try {
+                const behavRes = await api.get(`/analytics/${portfolioId}/behavioral`);
+                setBehavioralData(behavRes.data);
+            } catch (err: any) {
+                setBehavioralError('Failed to load behavioral analytics.');
+            } finally {
+                setIsBehavioralLoading(false);
+            }
+
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to load portfolio details.');
         } finally {
@@ -113,6 +130,9 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
         riskMetrics,
         isRiskLoading,
         riskError,
+        behavioralData,
+        isBehavioralLoading,
+        behavioralError,
         refetch: fetchData
     };
 }

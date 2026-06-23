@@ -187,6 +187,29 @@ class LongTermAttributionResponse(BaseModel):
     mwr_slicing: List[MWRSlicingResponse]
     is_synthetic_cash_proxy: bool = False
 
+class BehavioralAnalysisResponse(BaseModel):
+    portfolio_id: uuid.UUID
+    snapshot_date: date
+    disposition_ratio: float
+    momentum_bias_score: float
+    revenge_trade_count: int
+    panic_sell_score: float
+    endowment_trap_count: int
+    churn_rate: float
+    win_rate: float
+    winner_avg_capital: float
+    loser_avg_capital: float
+    holding_period_variance: float
+    overconfidence_bias_count: int
+    dividend_trap_count: int
+    bandwagon_bias_count: int
+    market_timing_futility_delta: float
+    boredom_trade_count: int
+    detailed_metrics: dict
+
+    class Config:
+        from_attributes = True
+
 
 # ---------------------------------------------------------
 # Risk Metrics Schemas

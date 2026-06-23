@@ -25,7 +25,10 @@ class MarketDataService:
             return
         ticker = ticker.upper().strip()[:32]
 
-        start_str = start_date.strftime('%Y-%m-%d')
+        # Create a 90-day caching buffer before the start date to ensure 
+        # technical indicators (like the 26-day MACD EMA) have a long runway 
+        # to smooth out and stabilize before the user's earliest transaction.
+        start_str = (start_date - timedelta(days=90)).strftime('%Y-%m-%d')
         end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')
 
         logger.info(f"Fetching market data for {ticker} from {start_str} to {end_str}...")

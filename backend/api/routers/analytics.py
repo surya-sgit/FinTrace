@@ -7,6 +7,8 @@ from api.dependencies import get_current_user
 from db.session import get_db
 from domain import models, schemas
 from engine.analytics.attribution import PerformanceAttributionEngine
+from engine.analytics.long_term_attribution import LongTermAttributionEngine
+from typing import Optional
 
 router = APIRouter()
 
@@ -94,6 +96,43 @@ async def get_long_term_attribution(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e)
         )
+
+
+@router.get(
+    "/{portfolio_id}/behavioral",
+    response_model=schemas.BehavioralAnalysisResponse,
+    summary="Retrieve pre-computed Behavioral Analytics",
+    description="Fetches the latest psychological trading bias snapshot (Disposition Effect, Momentum Bias) from the database."
+)
+def get_behavioral_analytics(
+    portfolio_id: uuid.UUID,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Tenant Isolation
+    portfolio = db.query(models.Portfolio).filter(
+        models.Portfolio.id == portfolio_id,
+        models.Portfolio.user_id == current_user.id
+    ).first()
+    
+    if not portfolio:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found or access denied."
+        )
+
+    snapshot = db.query(models.BehavioralAnalysisSnapshot).filter(
+        models.BehavioralAnalysisSnapshot.portfolio_id == portfolio_id
+    ).order_by(models.BehavioralAnalysisSnapshot.snapshot_date.desc()).first()
+
+    if not snapshot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Behavioral analytics have not been generated for this portfolio yet."
+        )
+
+    return snapshot
+
 
 
 @router.get(

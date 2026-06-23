@@ -1,20 +1,42 @@
 import uuid
+import hashlib
 from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from datetime import date
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from pydantic import ValidationError
 
-from db.session import get_db
-from domain import models
+from db.session import get_db, SessionLocal
+from domain import models, schemas
+from engine.market_data.market_service import MarketDataService
+from engine.market_data.corporate_actions import CorporateActionService
 from domain.services.transaction_service import TransactionService
 from engine.ingestion.base import IngestionValidationError
+from engine.analytics.behavioral import BehavioralAnalyticsEngine
 from api.dependencies import get_current_user
 
 router = APIRouter()
 
 def get_transaction_service(db: Session = Depends(get_db)) -> TransactionService:
     return TransactionService(db)
+
+def generate_row_checksum(portfolio_id: str, row_data: dict) -> str:
+    """Creates a deterministic SHA-256 hash for a transaction row."""
+    raw_string = f"{portfolio_id}_{row_data.get('ticker')}_{row_data.get('transaction_type')}_{row_data.get('quantity')}_{row_data.get('price_per_unit')}_{row_data.get('execution_date')}"
+    return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
+
+def trigger_behavioral_analytics(portfolio_id: uuid.UUID):
+    """Isolated background execution context for behavioral analytics."""
+    db = SessionLocal()
+    try:
+        engine = BehavioralAnalyticsEngine(db_session=db, portfolio_id=str(portfolio_id))
+        engine.run_analysis()
+    except Exception as e:
+        print(f"Background task failed for portfolio {portfolio_id}: {str(e)}")
+    finally:
+        db.close()
 
 @router.post(
     "/{portfolio_id}/upload",
@@ -24,6 +46,7 @@ def get_transaction_service(db: Session = Depends(get_db)) -> TransactionService
 )
 async def upload_transaction_ledger(
     portfolio_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     password: Optional[str] = Form(None),
     db: Session = Depends(get_db),
@@ -60,6 +83,9 @@ async def upload_transaction_ledger(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"message": "File validation failed.", "errors": ive.errors},
         )
+
+    # 8. Trigger Behavioral Analytics mathematically heavy computation in the background
+    background_tasks.add_task(trigger_behavioral_analytics, portfolio_id)
 
     return {
         "status": "success",

@@ -87,3 +87,57 @@ export interface RiskMetricsReport {
     sortino_ratio: number;
     holding_periods: HoldingPeriodRow[];
 }
+
+export interface BehavioralTrade {
+    ticker: string;
+    days_held: number;
+    alpha: number;
+    buy_date: string;
+    sell_date: string;
+    trade_ret: number;
+    bench_ret: number;
+    capital_invested?: number;
+}
+
+export interface BehavioralDetailedMetrics {
+    total_buys: number;
+    panic_sells: number;
+    momentum_buys: number;
+    revenge_trades: number;
+    endowment_traps: number;
+    win_rate_percent: number;
+    loser_avg_capital: number;
+    churn_rate_percent: number;
+    winner_avg_capital: number;
+    avg_loser_hold_days: number;
+    boredom_trade_count: number;
+    dividend_trap_count: number;
+    total_closed_trades: number;
+    avg_winner_hold_days: number;
+    bandwagon_bias_count: number;
+    holding_period_variance: number;
+    overconfidence_bias_count: number;
+    market_timing_futility_delta: number;
+    trades: BehavioralTrade[];
+}
+
+export interface BehavioralAnalysisReport {
+    portfolio_id: string;
+    snapshot_date: string;
+    disposition_ratio: number;
+    momentum_bias_score: number;
+    revenge_trade_count: number;
+    panic_sell_score: number;
+    endowment_trap_count: number;
+    churn_rate: number;
+    win_rate: number;
+    winner_avg_capital: number;
+    loser_avg_capital: number;
+    holding_period_variance: number;
+    overconfidence_bias_count: number;
+    dividend_trap_count: number;
+    bandwagon_bias_count: number;
+    market_timing_futility_delta: number;
+    boredom_trade_count: number;
+    detailed_metrics: BehavioralDetailedMetrics;
+}

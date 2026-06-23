@@ -10,6 +10,7 @@ import { useUpload } from '@/hooks/useUpload';
 import { OverviewTab } from '@/components/portfolio/OverviewTab';
 import { ShortTermTab } from '@/components/portfolio/ShortTermTab';
 import { LongTermTab } from '@/components/portfolio/LongTermTab';
+import { BehavioralTab } from '@/components/portfolio/BehavioralTab';
 import api from '@/lib/api';
 
 export default function PortfolioDetailPage({ params }: { params: Promise<{ portfolio_id: string }> }) {
@@ -18,7 +19,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
     const { portfolio_id } = resolvedParams;
 
     const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-    const [activeTab, setActiveTab] = useState<'overview' | 'short-term' | 'long-term'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'short-term' | 'long-term' | 'behavioral'>('overview');
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadError, setDownloadError] = useState('');
 
@@ -28,6 +29,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
         attributionData, isAttributionLoading, attributionError,
         ltData, isLtLoading, ltError,
         riskMetrics, isRiskLoading, riskError,
+        behavioralData, isBehavioralLoading, behavioralError,
         refetch
     } = usePortfolioData(portfolio_id, selectedDate);
 
@@ -122,7 +124,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                     </div>
                 )}
 
-                <div className="mb-6 border-b border-gray-200">
+                <div className="mb-6 border-b border-gray-200 overflow-x-auto">
                     <nav className="-mb-px flex space-x-8">
                         <button
                             onClick={() => setActiveTab('overview')}
@@ -141,6 +143,12 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                             className={`${activeTab === 'long-term' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm`}
                         >
                             Long-Term Value
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('behavioral')}
+                            className={`${activeTab === 'behavioral' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'} whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm`}
+                        >
+                            Behavioral Analytics
                         </button>
                     </nav>
                 </div>
@@ -182,6 +190,14 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                         riskMetrics={riskMetrics}
                         isRiskLoading={isRiskLoading}
                         riskError={riskError}
+                    />
+                )}
+
+                {activeTab === 'behavioral' && (
+                    <BehavioralTab 
+                        data={behavioralData}
+                        isLoading={isBehavioralLoading}
+                        error={behavioralError}
                     />
                 )}
             </main>
