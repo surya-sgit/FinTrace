@@ -36,7 +36,7 @@ export function useUpload(portfolioId: string, refetch: () => void) {
         }
 
         try {
-            const res = await api.post(`/transactions/${portfolioId}/upload`, formData, {
+            const res = await api.post(`/portfolios/${portfolioId}/upload`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
             setUploadSuccess(res.data.message);

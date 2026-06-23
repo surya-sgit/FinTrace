@@ -42,6 +42,7 @@ class TransactionService:
         class DummyFile:
             def __init__(self, name):
                 self.filename = name
+                self.content_type = "text/csv" if name.lower().endswith(".csv") else "application/pdf"
         
         parser = ParserFactory.get_parser(DummyFile(file_name), password=password)
 
