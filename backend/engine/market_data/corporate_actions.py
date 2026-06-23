@@ -1,12 +1,11 @@
-import os
-import requests
+import yfinance as yf
+import pandas as pd
 import datetime
 import logging
 from decimal import Decimal
 from typing import List
 from sqlalchemy.orm import Session
 
-from core.config import settings
 from domain.models import CorporateActionEvent
 
 logger = logging.getLogger(__name__)
@@ -14,52 +13,23 @@ logger = logging.getLogger(__name__)
 class CorporateActionService:
     def __init__(self, db_session: Session):
         self.db = db_session
-        self.api_key = settings.ALPHA_VANTAGE_API_KEY
-        self.base_url = "https://www.alphavantage.co/query"
-
-    def _translate_ticker_for_alpha_vantage(self, ticker: str) -> str:
-        """
-        Translates Yahoo Finance style tickers to Alpha Vantage style tickers.
-        e.g., RELIANCE.NS -> NSE:RELIANCE
-        """
-        if ticker.endswith(".NS"):
-            return f"NSE:{ticker[:-3]}"
-        elif ticker.endswith(".BO") or ticker.endswith(".BSE"):
-            suffix_len = len(ticker.split('.')[-1]) + 1
-            return f"BSE:{ticker[:-suffix_len]}"
-        return ticker
 
     def sync_splits_for_ticker(self, ticker: str) -> None:
         """
-        Fetches historical split data from Alpha Vantage and upserts it into the CorporateActionEvent table.
+        Fetches historical split data from yfinance and upserts it into the CorporateActionEvent table.
         """
         try:
-            av_ticker = self._translate_ticker_for_alpha_vantage(ticker)
-            params = {
-                "function": "SPLITS",
-                "symbol": av_ticker,
-                "apikey": self.api_key
-            }
-            response = requests.get(self.base_url, params=params, timeout=10)
-            if response.status_code != 200:
-                logger.error(f"Alpha Vantage API returned {response.status_code} for {ticker}")
-                return
-
-            data = response.json()
+            ticker_obj = yf.Ticker(ticker)
+            splits = ticker_obj.splits
             
-            # Alpha Vantage returns an Information or Note string when the API key is restricted
-            if "Information" in data or "Note" in data:
-                logger.warning(f"Alpha Vantage API key restricted. Failed to sync splits for {ticker}. Message: {data}")
-                return
-
-            if "data" not in data:
+            if splits is None or splits.empty:
                 logger.info(f"No split data found for {ticker}")
                 return
 
-            splits = data["data"]
-            for split in splits:
-                ex_date = datetime.datetime.strptime(split["effective_date"], "%Y-%m-%d").date()
-                factor = Decimal(str(split["split_factor"]))
+            for timestamp, split_factor in splits.items():
+                # timestamp is a pandas Timestamp
+                ex_date = timestamp.date() if hasattr(timestamp, 'date') else timestamp
+                factor = Decimal(str(split_factor))
 
                 # Check if it already exists
                 existing = self.db.query(CorporateActionEvent).filter(

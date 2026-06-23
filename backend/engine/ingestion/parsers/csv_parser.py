@@ -181,6 +181,7 @@ class BrokerCSVParser(BaseParser):
         transaction_objs: List[schemas.TransactionCreate] = []
         validation_errors: List[dict] = []
 
+        parsed_rows = []
         for line_no, row in enumerate(rows[header_row_idx + 1 :], start=header_row_idx + 2):
             if not any(cell.strip() for cell in row):
                 # skip completely empty lines (often trailing newlines)
@@ -218,13 +219,50 @@ class BrokerCSVParser(BaseParser):
                     else:
                         data["price_per_unit"] = Decimal("0.00")
 
-                # Dynamically construct yfinance ticker if symbol and exchange are present
+                # Dynamically construct temporary symbol data for unification pass
                 if "raw_symbol" in data and "exchange_code" in data:
                     sym = data["raw_symbol"].strip().upper()
                     ex = data["exchange_code"].strip().upper()
-                    if ex in {"NSE", "BSE"}:
-                        suffix = ".BO" if ex == "BSE" else ".NS"
-                        data["ticker"] = f"{sym}{suffix}"
+                    data["_raw_symbol"] = sym
+                    data["_exchange_code"] = ex
+
+                parsed_rows.append((line_no, data))
+            except Exception as exc:
+                validation_errors.append({"row": line_no, "errors": [str(exc)]})
+
+        # -------------------------------------------------------------------
+        # Unification Pass: Map cross-exchange trades of the same asset to a single ticker
+        # -------------------------------------------------------------------
+        symbol_exchanges: Dict[str, set] = {}
+        for line_no, data in parsed_rows:
+            if "_raw_symbol" in data and "_exchange_code" in data:
+                sym = data["_raw_symbol"]
+                ex = data["_exchange_code"]
+                if sym not in symbol_exchanges:
+                    symbol_exchanges[sym] = set()
+                if ex in {"NSE", "BSE"}:
+                    symbol_exchanges[sym].add(ex)
+
+        for line_no, data in parsed_rows:
+            try:
+                if "_raw_symbol" in data and "_exchange_code" in data:
+                    sym = data["_raw_symbol"]
+                    exchanges = symbol_exchanges.get(sym, set())
+                    
+                    # Unification Algorithm:
+                    # If this symbol was EVER traded on NSE, force the ticker to .NS
+                    # Otherwise, if it was ONLY traded on BSE, use .BO
+                    if "NSE" in exchanges:
+                        data["ticker"] = f"{sym}.NS"
+                    elif "BSE" in exchanges:
+                        data["ticker"] = f"{sym}.BO"
+                    else:
+                        # Fallback for unrecognized exchanges
+                        data["ticker"] = f"{sym}.NS"
+                        
+                    # Clean up temp fields
+                    del data["_raw_symbol"]
+                    del data["_exchange_code"]
 
                 # Ensure mandatory fields are present; missing brokerage handled later.
                 for mandatory in ["ticker", "transaction_type", "quantity", "price_per_unit", "execution_date"]:

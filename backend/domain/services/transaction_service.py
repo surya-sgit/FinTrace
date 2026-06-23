@@ -51,6 +51,29 @@ class TransactionService:
         if not transaction_objs:
             raise ValueError("No valid transaction rows found in the uploaded file.")
 
+        # Sync corporate actions BEFORE validating the ledger
+        unique_tickers = {t.ticker.upper() for t in transaction_objs if t.ticker and t.ticker.strip()}
+        for ticker in unique_tickers:
+            try:
+                self.corp_service.sync_splits_for_ticker(ticker)
+            except Exception as e:
+                logger.error(f"Error syncing splits for {ticker}: {str(e)}")
+
+        # --- BEGIN STATEFUL LEDGER INTEGRITY VALIDATION ---
+        from engine.ingestion.ledger_validator import LedgerValidator
+        
+        existing_txs = self.db.query(
+            models.TransactionLedger.ticker, 
+            models.TransactionLedger.transaction_type, 
+            models.TransactionLedger.quantity, 
+            models.TransactionLedger.execution_date
+        ).filter(
+            models.TransactionLedger.portfolio_id == portfolio.id
+        ).all()
+
+        LedgerValidator(self.db).validate(existing_txs, transaction_objs)
+        # --- END STATEFUL LEDGER INTEGRITY VALIDATION ---
+
         db_transactions = []
         for txn in transaction_objs:
             row_dict = txn.model_dump()
@@ -78,7 +101,6 @@ class TransactionService:
             raise ValueError("One or more records in this file have already been processed (Duplicate Checksum).")
 
         # Market data synchronization
-        unique_tickers = {t.ticker.upper() for t in transaction_objs if t.ticker and t.ticker.strip()}
         earliest_date = min(t.execution_date for t in transaction_objs)
         today = date.today()
 
@@ -92,10 +114,5 @@ class TransactionService:
                 self.market_service.fetch_historical_prices(ticker, earliest_date, today)
             except Exception as e:
                 logger.error(f"Error fetching historical prices for {ticker}: {str(e)}")
-                
-            try:
-                self.corp_service.sync_splits_for_ticker(ticker)
-            except Exception as e:
-                logger.error(f"Error syncing splits for {ticker}: {str(e)}")
 
         return len(db_transactions)

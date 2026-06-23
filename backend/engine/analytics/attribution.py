@@ -67,9 +67,8 @@ class PerformanceAttributionEngine:
                 running_positions[ticker] += qty
             elif tx.transaction_type == "SELL":
                 running_positions[ticker] -= qty
-                if running_positions[ticker] < Decimal('0.0000'):
-                    # Gracefully handle phantom sells by clamping to 0
-                    running_positions[ticker] = Decimal('0.0000')
+                # The clamp to 0.0000 has been removed. 
+                # Negative balances will no longer occur due to upstream transaction validation.
             
             # 2. Segregate legacy vs intraday
             if tx.execution_date < target_date:

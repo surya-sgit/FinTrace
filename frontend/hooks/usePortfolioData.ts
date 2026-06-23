@@ -47,66 +47,82 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
             const portRes = await api.get(`/portfolios/${portfolioId}`);
             setPortfolio(portRes.data);
 
-            // 2. Fetch Analytics (Run in parallel if portfolio exists)
-            try {
-                const [xirrRes, taxRes] = await Promise.all([
-                    api.get(`/portfolios/${portfolioId}/xirr-report`),
-                    api.get(`/portfolios/${portfolioId}/tax-report`)
-                ]);
-                setXirrReport(xirrRes.data);
-                setTaxReport(taxRes.data);
-            } catch (err) {
-                console.log("No data for reports yet or engine error.", err);
-            }
-
-            // 3. Fetch Attribution
+            // 2. Fire all analytics fetches concurrently
             setIsAttributionLoading(true);
-            setAttributionError('');
-            try {
-                const attrRes = await api.get(`/analytics/${portfolioId}/attribution?target_date=${selectedDate}`);
-                setAttributionData(attrRes.data);
-            } catch (err: any) {
-                setAttributionError(err.response?.data?.detail || 'Failed to load attribution data.');
-                setAttributionData(null);
-            } finally {
-                setIsAttributionLoading(false);
-            }
-
-            // 4. Fetch Long Term Analytics
             setIsLtLoading(true);
-            setLtError('');
-            try {
-                const ltRes = await api.get(`/analytics/${portfolioId}/long-term-attribution`);
-                setLtData(ltRes.data);
-            } catch (err: any) {
-                setLtError('Failed to load long term analytics.');
-            } finally {
-                setIsLtLoading(false);
-            }
-
-            // 5. Fetch Risk Metrics
             setIsRiskLoading(true);
-            setRiskError('');
-            try {
-                const riskRes = await api.get(`/analytics/${portfolioId}/risk-metrics`);
-                setRiskMetrics(riskRes.data);
-            } catch (err: any) {
-                setRiskError('Failed to load risk metrics.');
-            } finally {
-                setIsRiskLoading(false);
-            }
-
-            // 5. Fetch Behavioral Analytics
             setIsBehavioralLoading(true);
+            setAttributionError('');
+            setLtError('');
+            setRiskError('');
             setBehavioralError('');
-            try {
-                const behavRes = await api.get(`/analytics/${portfolioId}/behavioral`);
-                setBehavioralData(behavRes.data);
-            } catch (err: any) {
-                setBehavioralError('Failed to load behavioral analytics.');
-            } finally {
-                setIsBehavioralLoading(false);
-            }
+
+            const fetchReports = async () => {
+                try {
+                    const [xirrRes, taxRes] = await Promise.all([
+                        api.get(`/portfolios/${portfolioId}/xirr-report`),
+                        api.get(`/portfolios/${portfolioId}/tax-report`)
+                    ]);
+                    setXirrReport(xirrRes.data);
+                    setTaxReport(taxRes.data);
+                } catch (err) {
+                    console.log("No data for reports yet or engine error.", err);
+                }
+            };
+
+            const fetchAttribution = async () => {
+                try {
+                    const attrRes = await api.get(`/analytics/${portfolioId}/attribution?target_date=${selectedDate}`);
+                    setAttributionData(attrRes.data);
+                } catch (err: any) {
+                    setAttributionError(err.response?.data?.detail || 'Failed to load attribution data.');
+                    setAttributionData(null);
+                } finally {
+                    setIsAttributionLoading(false);
+                }
+            };
+
+            const fetchLt = async () => {
+                try {
+                    const ltRes = await api.get(`/analytics/${portfolioId}/long-term-attribution`);
+                    setLtData(ltRes.data);
+                } catch (err: any) {
+                    setLtError('Failed to load long term analytics.');
+                } finally {
+                    setIsLtLoading(false);
+                }
+            };
+
+            const fetchRisk = async () => {
+                try {
+                    const riskRes = await api.get(`/analytics/${portfolioId}/risk-metrics`);
+                    setRiskMetrics(riskRes.data);
+                } catch (err: any) {
+                    setRiskError('Failed to load risk metrics.');
+                } finally {
+                    setIsRiskLoading(false);
+                }
+            };
+
+            const fetchBehavioral = async () => {
+                try {
+                    const behavRes = await api.get(`/analytics/${portfolioId}/behavioral`);
+                    setBehavioralData(behavRes.data);
+                } catch (err: any) {
+                    setBehavioralError('Failed to load behavioral analytics.');
+                } finally {
+                    setIsBehavioralLoading(false);
+                }
+            };
+
+            // Execute all analytics fetches in parallel
+            await Promise.allSettled([
+                fetchReports(),
+                fetchAttribution(),
+                fetchLt(),
+                fetchRisk(),
+                fetchBehavioral()
+            ]);
 
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to load portfolio details.');

@@ -20,7 +20,7 @@ class XIRREngine:
         self.market_service = MarketDataService(db_session)
 
     def calculate_portfolio_xirr(self) -> Dict[str, any]:
-        # 1. Fetch all transactions sorted by date to process chronologically
+        # 1. Fetch all transactions sorted by date
         transactions = self.db.query(TransactionLedger).filter(
             TransactionLedger.portfolio_id == self.portfolio_id
         ).order_by(TransactionLedger.execution_date.asc(), TransactionLedger.transaction_type.asc()).all()
@@ -35,66 +35,142 @@ class XIRREngine:
                 "valuation_history": []
             }
 
+        from collections import deque
+        from domain.models import CorporateActionEvent
+
         xirr_dates: List[date] = []
         xirr_amounts: List[float] = []
 
-        # Quant tracking dictionaries
-        holdings_qty: Dict[str, Decimal] = {}
-        holdings_cost: Dict[str, Decimal] = {} # Total cost spent on remaining shares
+        # FIFO queues for each ticker: dict[ticker, deque[{'qty': Decimal, 'cost': Decimal}]]
+        holdings_fifo: Dict[str, deque] = {}
+        unique_tickers = {tx.ticker for tx in transactions}
+
+        # Pre-fetch splits
+        all_splits = self.db.query(CorporateActionEvent).filter(
+            CorporateActionEvent.ticker.in_(unique_tickers),
+            CorporateActionEvent.action_type == "SPLIT"
+        ).order_by(CorporateActionEvent.ex_date.asc()).all()
+
+        splits_map = {}
+        for sp in all_splits:
+            if sp.ticker not in splits_map:
+                splits_map[sp.ticker] = {}
+            splits_map[sp.ticker][sp.ex_date] = sp.adjustment_factor
 
         net_cash_flow = Decimal('0.0000')
+        net_deployed_capital = Decimal('0.0000')
 
-        # 2. Process historical cash flows chronologically
+        # Group transactions by date to apply splits on the ex_date before processing trades
+        tx_by_date = {}
         for tx in transactions:
-            qty = Decimal(str(tx.quantity))
-            price = Decimal(str(tx.price_per_unit))
-            fees = Decimal(str(tx.brokerage_fees))
+            d = tx.execution_date
+            if d not in tx_by_date:
+                tx_by_date[d] = []
+            tx_by_date[d].append(tx)
 
-            if tx.ticker not in holdings_qty:
-                holdings_qty[tx.ticker] = Decimal('0.0000')
-                holdings_cost[tx.ticker] = Decimal('0.0000')
+        # Collect all relevant dates (trade dates + split dates)
+        all_dates = set(tx_by_date.keys())
+        for sp in all_splits:
+            all_dates.add(sp.ex_date)
+        sorted_dates = sorted(list(all_dates))
 
-            if tx.transaction_type == "BUY":
-                # Outflow: Cash leaves portfolio
-                cash_flow_val = (qty * price) + fees
-                net_cash_flow -= cash_flow_val
+        # We will build valuation_history accurately using FIFO
+        valuation_history = []
 
-                xirr_dates.append(tx.execution_date)
-                xirr_amounts.append(-float(cash_flow_val))
+        for current_date in sorted_dates:
+            # 1. Apply Splits occurring on this date
+            for ticker, queue in holdings_fifo.items():
+                if ticker in splits_map and current_date in splits_map[ticker]:
+                    factor = splits_map[ticker][current_date]
+                    for lot in queue:
+                        lot['qty'] *= factor
+                        lot['cost'] /= factor
 
-                holdings_qty[tx.ticker] += qty
-                holdings_cost[tx.ticker] += cash_flow_val
+            # 2. Process transactions for this date
+            day_txs = tx_by_date.get(current_date, [])
+            for tx in day_txs:
+                ticker = tx.ticker
+                qty = Decimal(str(tx.quantity))
+                price = Decimal(str(tx.price_per_unit))
+                fees = Decimal(str(tx.brokerage_fees))
 
-            elif tx.transaction_type == "SELL":
-                # Inflow: Cash enters portfolio
-                cash_flow_val = (qty * price) - fees
-                net_cash_flow += cash_flow_val
+                if ticker not in holdings_fifo:
+                    holdings_fifo[ticker] = deque()
 
-                xirr_dates.append(tx.execution_date)
-                xirr_amounts.append(float(cash_flow_val))
+                if tx.transaction_type == "BUY":
+                    # Outflow: Cash leaves portfolio
+                    cash_flow_val = (qty * price) + fees
+                    net_cash_flow -= cash_flow_val
+                    net_deployed_capital += cash_flow_val
 
-                # Update cost basis proportionally to shares sold (FIFO/Average Cost hybrid assumption)
-                if holdings_qty[tx.ticker] > 0:
-                    avg_price_before_sell = holdings_cost[tx.ticker] / holdings_qty[tx.ticker]
-                    holdings_cost[tx.ticker] -= (qty * avg_price_before_sell)
+                    xirr_dates.append(tx.execution_date)
+                    xirr_amounts.append(-float(cash_flow_val))
 
-                holdings_qty[tx.ticker] -= qty
+                    # For "Invested Value" calculations (like Groww), fees are excluded from the unit cost
+                    lot_cost = price
+                    holdings_fifo[ticker].append({'qty': qty, 'cost': lot_cost})
 
-            elif tx.transaction_type == "DIVIDEND":
-                # Inflow: Pure cash return
-                cash_flow_val = qty * price
-                net_cash_flow += cash_flow_val
+                elif tx.transaction_type == "SELL":
+                    # Inflow: Cash enters portfolio
+                    cash_flow_val = (qty * price) - fees
+                    net_cash_flow += cash_flow_val
+                    net_deployed_capital -= cash_flow_val
 
-                xirr_dates.append(tx.execution_date)
-                xirr_amounts.append(float(cash_flow_val))
+                    xirr_dates.append(tx.execution_date)
+                    xirr_amounts.append(float(cash_flow_val))
+
+                    # FIFO Depletion
+                    sell_qty = qty
+                    queue = holdings_fifo[ticker]
+                    while sell_qty > Decimal('0') and queue:
+                        oldest_lot = queue[0]
+                        matched_qty = min(sell_qty, oldest_lot['qty'])
+                        
+                        sell_qty -= matched_qty
+                        oldest_lot['qty'] -= matched_qty
+                        
+                        if oldest_lot['qty'] <= Decimal('0'):
+                            queue.popleft()
+
+                elif tx.transaction_type == "DIVIDEND":
+                    # Inflow: Pure cash return
+                    cash_flow_val = qty * price
+                    net_cash_flow += cash_flow_val
+
+                    xirr_dates.append(tx.execution_date)
+                    xirr_amounts.append(float(cash_flow_val))
+
+            # Record end-of-day market value for history
+            if day_txs:
+                eod_market_value = Decimal('0.0000')
+                for ticker, queue in holdings_fifo.items():
+                    qty = sum(lot['qty'] for lot in queue)
+                    if qty > Decimal('0.0000'):
+                        try:
+                            price = Decimal(str(self.market_service.get_price(ticker, current_date)))
+                            eod_market_value += qty * price
+                        except ValueError:
+                            # If no price is available for that historical date, fallback to cost
+                            cost = sum(lot['qty'] * lot['cost'] for lot in queue)
+                            eod_market_value += cost
+                
+                valuation_history.append({
+                    "date": current_date.isoformat(),
+                    "valuation": round(float(eod_market_value), 2)
+                })
 
         # 3. Process terminal cash flows (Simulated sell off of remaining holdings today)
         today = date.today()
         current_portfolio_value = Decimal('0.0000')
         current_cost_basis = Decimal('0.0000')
 
-        for ticker, remaining_qty in holdings_qty.items():
+        for ticker, queue in holdings_fifo.items():
+            remaining_qty = sum(lot['qty'] for lot in queue)
             if remaining_qty > Decimal('0.0000'):
+                # Calculate FIFO Cost Basis
+                cost_basis = sum(lot['qty'] * lot['cost'] for lot in queue)
+                current_cost_basis += cost_basis
+
                 try:
                     # Fetch price from your market service cache
                     latest_price = Decimal(str(self.market_service.get_price(ticker, today)))
@@ -105,7 +181,6 @@ class XIRREngine:
                     xirr_amounts.append(float(asset_value))
 
                     current_portfolio_value += asset_value
-                    current_cost_basis += holdings_cost[ticker]
                 except ValueError:
                     # Missing terminal market data. Fallback to 0.00 so the report doesn't crash.
                     latest_price = Decimal('0.00')
@@ -115,28 +190,6 @@ class XIRREngine:
                     xirr_amounts.append(float(asset_value))
 
                     current_portfolio_value += asset_value
-                    current_cost_basis += holdings_cost[ticker]
-
-        # NEW: Build a clean historical timeline directly using the dates from the CSV transactions
-        valuation_history = []
-        running_cost = Decimal('0.0000')
-        
-        # Capture historical milestone dates from your ledger
-        for tx in transactions:
-            qty = Decimal(str(tx.quantity))
-            price = Decimal(str(tx.price_per_unit))
-            fees = Decimal(str(tx.brokerage_fees))
-            
-            if tx.transaction_type == "BUY":
-                running_cost += (qty * price) + fees
-            elif tx.transaction_type == "SELL":
-                # Basic representation of reduction on transaction date
-                running_cost -= (qty * price) - fees
-                
-            valuation_history.append({
-                "date": tx.execution_date.isoformat(),
-                "valuation": round(float(running_cost), 2)
-            })
 
         # Append today's final terminal value as the last point
         valuation_history.append({
