@@ -4,6 +4,11 @@ from sqlalchemy import Column, String, Numeric, DateTime, Date, ForeignKey, BigI
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
+from sqlalchemy.ext.compiler import compiles
+
+@compiles(BigInteger, "sqlite")
+def compile_bigint_sqlite(type_, compiler, **kw):
+    return "INTEGER"
 
 Base = declarative_base()
 

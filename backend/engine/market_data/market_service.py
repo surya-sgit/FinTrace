@@ -3,10 +3,11 @@ import pandas as pd
 import logging
 from datetime import date, timedelta
 from typing import List
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 
-from domain.models import AssetPrices
+from domain.models import AssetPrices, AssetMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,10 @@ class MarketDataService:
         Fetches EOD pricing data from Yahoo Finance and caches it in PostgreSQL.
         Uses PostgreSQL 'UPSERT' (ON CONFLICT DO NOTHING) to safely ignore duplicates.
         """
+        if not ticker or not isinstance(ticker, str):
+            return
+        ticker = ticker.upper().strip()[:32]
+
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')
 
@@ -133,3 +138,73 @@ class MarketDataService:
                 result[d][r.ticker] = float(r.adjusted_close)
                 
         return result
+
+    def fetch_and_cache_metadata(self, ticker: str) -> None:
+        """
+        Fetches sector and industry metadata from Yahoo Finance and caches it in PostgreSQL/SQLite.
+        Checks if metadata already exists in the database first to minimize network requests.
+        """
+        if not ticker or not isinstance(ticker, str):
+            return
+        ticker = ticker.upper().strip()[:32]
+
+        # Check if already cached
+        existing = self.db.query(AssetMetadata).filter(AssetMetadata.ticker == ticker).first()
+        if existing:
+            logger.info(f"Metadata for ticker {ticker} already cached.")
+            return
+
+        logger.info(f"Fetching metadata for {ticker} from Yahoo Finance...")
+
+        sector = "Unknown"
+        industry = "Unknown"
+
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            info = ticker_obj.info
+            if isinstance(info, dict):
+                raw_sector = info.get("sector")
+                raw_industry = info.get("industry")
+                
+                if isinstance(raw_sector, str):
+                    raw_sector = raw_sector.strip()
+                    if raw_sector:
+                        sector = raw_sector.title()
+                
+                if isinstance(raw_industry, str):
+                    raw_industry = raw_industry.strip()
+                    if raw_industry:
+                        industry = raw_industry.title()
+        except Exception as e:
+            logger.warning(f"Failed to fetch metadata from yfinance for {ticker}: {str(e)}")
+
+        # Ensure truncation to 64 chars
+        sector = sector[:64]
+        industry = industry[:64]
+
+        try:
+            new_metadata = AssetMetadata(
+                ticker=ticker,
+                sector=sector,
+                industry=industry
+            )
+            self.db.add(new_metadata)
+            self.db.commit()
+            logger.info(f"Successfully cached metadata for {ticker}: Sector='{sector}', Industry='{industry}'")
+        except IntegrityError as ie:
+            self.db.rollback()
+            existing_after_rollback = self.db.query(AssetMetadata).filter(AssetMetadata.ticker == ticker).first()
+            if existing_after_rollback:
+                logger.info(f"Concurrent ingestion handled: Metadata for {ticker} was committed by another thread.")
+                return
+            else:
+                logger.error(f"IntegrityError raised but ticker {ticker} not found in database: {str(ie)}", exc_info=True)
+                raise ie
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Failed to save metadata for {ticker}: {str(e)}", exc_info=True)
+            raise e
+
+    def fetch_and_cache_sector_metadata(self, ticker: str) -> None:
+        self.fetch_and_cache_metadata(ticker)
+

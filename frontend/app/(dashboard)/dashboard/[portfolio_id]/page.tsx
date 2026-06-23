@@ -26,7 +26,9 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
     const {
         portfolio, xirrReport, taxReport, isLoading, error,
         attributionData, isAttributionLoading, attributionError,
-        ltData, isLtLoading, ltError, refetch
+        ltData, isLtLoading, ltError,
+        riskMetrics, isRiskLoading, riskError,
+        refetch
     } = usePortfolioData(portfolio_id, selectedDate);
 
     // Upload transaction logic
@@ -173,10 +175,13 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                 )}
 
                 {activeTab === 'long-term' && (
-                    <LongTermTab 
+                    <LongTermTab
                         ltData={ltData}
                         isLtLoading={isLtLoading}
                         ltError={ltError}
+                        riskMetrics={riskMetrics}
+                        isRiskLoading={isRiskLoading}
+                        riskError={riskError}
                     />
                 )}
             </main>

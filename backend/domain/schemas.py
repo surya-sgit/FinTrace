@@ -186,3 +186,27 @@ class LongTermAttributionResponse(BaseModel):
     brinson_fachler: List[BrinsonFachlerResponse]
     mwr_slicing: List[MWRSlicingResponse]
     is_synthetic_cash_proxy: bool = False
+
+
+# ---------------------------------------------------------
+# Risk Metrics Schemas
+# ---------------------------------------------------------
+class HoldingPeriodRow(BaseModel):
+    ticker: str
+    avg_holding_days: float
+    max_holding_days: int
+    open_position_qty: float
+    is_still_held: bool
+
+
+class RiskMetricsResponse(BaseModel):
+    portfolio_id: str
+    start_date: date
+    end_date: date
+    alpha: float
+    beta: float
+    max_drawdown: float
+    annualised_volatility: float
+    sharpe_ratio: float
+    sortino_ratio: float
+    holding_periods: List[HoldingPeriodRow]

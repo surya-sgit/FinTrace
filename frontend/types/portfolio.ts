@@ -66,3 +66,24 @@ export interface LongTermAttributionReport {
     mwr_slicing: MWRSlicingRow[];
     is_synthetic_cash_proxy: boolean;
 }
+
+export interface HoldingPeriodRow {
+    ticker: string;
+    avg_holding_days: number;
+    max_holding_days: number;
+    open_position_qty: number;
+    is_still_held: boolean;
+}
+
+export interface RiskMetricsReport {
+    portfolio_id: string;
+    start_date: string;
+    end_date: string;
+    alpha: number;
+    beta: number;
+    max_drawdown: number;
+    annualised_volatility: number;
+    sharpe_ratio: number;
+    sortino_ratio: number;
+    holding_periods: HoldingPeriodRow[];
+}

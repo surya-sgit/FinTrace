@@ -19,7 +19,13 @@ test_user = User(id=uuid.uuid4(), email="test@example.com")
 def override_get_current_user():
     return test_user
 
-app.dependency_overrides[get_current_user] = override_get_current_user
+@pytest.fixture(autouse=True)
+def setup_overrides():
+    original_overrides = app.dependency_overrides.copy()
+    app.dependency_overrides[get_current_user] = override_get_current_user
+    yield
+    app.dependency_overrides.clear()
+    app.dependency_overrides.update(original_overrides)
 
 import pytest_asyncio
 

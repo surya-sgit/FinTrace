@@ -20,8 +20,13 @@ def get_isolated_db(user_id: uuid.UUID, db: Session) -> SQLDatabase:
         db.rollback()
         
     if portfolios:
-        df_p = pd.DataFrame([p.__dict__ for p in portfolios])
-        df_p = df_p.drop(columns=['_sa_instance_state'], errors='ignore')
+        df_p = pd.DataFrame([{
+            'id': str(p.id) if p.id else None,
+            'user_id': str(p.user_id) if p.user_id else None,
+            'name': p.name,
+            'tax_jurisdiction': p.tax_jurisdiction,
+            'created_at': str(p.created_at) if p.created_at else None
+        } for p in portfolios])
         df_p = df_p.astype(str)
         df_p.to_sql('portfolios', temp_engine, index=False)
     else:
@@ -36,8 +41,18 @@ def get_isolated_db(user_id: uuid.UUID, db: Session) -> SQLDatabase:
         db.rollback()
         
     if transactions:
-        df_t = pd.DataFrame([t.__dict__ for t in transactions])
-        df_t = df_t.drop(columns=['_sa_instance_state'], errors='ignore')
+        df_t = pd.DataFrame([{
+            'id': str(t.id) if t.id else None,
+            'portfolio_id': str(t.portfolio_id) if t.portfolio_id else None,
+            'ticker': t.ticker,
+            'transaction_type': t.transaction_type,
+            'quantity': float(t.quantity) if t.quantity is not None else 0.0,
+            'price_per_unit': float(t.price_per_unit) if t.price_per_unit is not None else 0.0,
+            'brokerage_fees': float(t.brokerage_fees) if t.brokerage_fees is not None else 0.0,
+            'execution_date': str(t.execution_date) if t.execution_date else None,
+            'settlement_date': str(t.settlement_date) if t.settlement_date else None,
+            'checksum': t.checksum
+        } for t in transactions])
         df_t = df_t.astype(str)
         # Quantity and price should be numeric for SQL math
         if 'quantity' in df_t.columns:
@@ -56,8 +71,12 @@ def get_isolated_db(user_id: uuid.UUID, db: Session) -> SQLDatabase:
         db.rollback()
         
     if prices:
-        df_m = pd.DataFrame([p.__dict__ for p in prices])
-        df_m = df_m.drop(columns=['_sa_instance_state'], errors='ignore')
+        df_m = pd.DataFrame([{
+            'ticker': p.ticker,
+            'current_price': float(p.current_price) if p.current_price is not None else 0.0,
+            'last_updated': str(p.last_updated) if p.last_updated else None,
+            'data_source': p.data_source
+        } for p in prices])
         df_m = df_m.astype(str)
         if 'current_price' in df_m.columns:
             df_m['current_price'] = pd.to_numeric(df_m['current_price'], errors='coerce')

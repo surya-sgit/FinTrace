@@ -5,7 +5,8 @@ import {
     XIRRReport,
     TaxReport,
     AttributionReport,
-    LongTermAttributionReport
+    LongTermAttributionReport,
+    RiskMetricsReport
 } from '@/types/portfolio';
 
 export function usePortfolioData(portfolioId: string, selectedDate: string) {
@@ -22,6 +23,10 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
     const [ltData, setLtData] = useState<LongTermAttributionReport | null>(null);
     const [isLtLoading, setIsLtLoading] = useState(false);
     const [ltError, setLtError] = useState('');
+
+    const [riskMetrics, setRiskMetrics] = useState<RiskMetricsReport | null>(null);
+    const [isRiskLoading, setIsRiskLoading] = useState(false);
+    const [riskError, setRiskError] = useState('');
 
     useEffect(() => {
         if (portfolioId) {
@@ -74,6 +79,18 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
                 setIsLtLoading(false);
             }
 
+            // 5. Fetch Risk Metrics
+            setIsRiskLoading(true);
+            setRiskError('');
+            try {
+                const riskRes = await api.get(`/analytics/${portfolioId}/risk-metrics`);
+                setRiskMetrics(riskRes.data);
+            } catch (err: any) {
+                setRiskError('Failed to load risk metrics.');
+            } finally {
+                setIsRiskLoading(false);
+            }
+
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to load portfolio details.');
         } finally {
@@ -93,6 +110,9 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
         ltData,
         isLtLoading,
         ltError,
+        riskMetrics,
+        isRiskLoading,
+        riskError,
         refetch: fetchData
     };
 }

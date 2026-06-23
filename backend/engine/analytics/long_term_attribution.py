@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -6,6 +7,8 @@ import pyxirr
 
 from domain.models import TransactionLedger, AssetMetadata, BenchmarkIndex, CorporateActionEvent
 from engine.market_data.market_service import MarketDataService
+
+logger = logging.getLogger(__name__)
 
 class LongTermAttributionEngine:
     def __init__(self, db_session: Session, portfolio_id: str):
@@ -151,23 +154,197 @@ class LongTermAttributionEngine:
         return results
 
     def _compute_brinson_fachler(self, all_transactions: List[TransactionLedger], start_date: date, end_date: date, prices_start: Dict, prices_end: Dict, corp_actions_map: Dict) -> List[Dict]:
-        # MVP: Mocking Sector mappings and Benchmark returns.
-        # In a real implementation, we would aggregate the portfolio values by sector and compute weights.
-        # Mocking generic values to allow pipeline completion
-        return [
-            {
-                "sector": "Information Technology",
-                "allocation_effect": Decimal('0.0150'),
-                "selection_effect": Decimal('0.0230'),
-                "interaction_effect": Decimal('0.0050')
-            },
-            {
-                "sector": "Financials",
-                "allocation_effect": Decimal('-0.0080'),
-                "selection_effect": Decimal('0.0110'),
-                "interaction_effect": Decimal('-0.0020')
+        from domain.models import AssetMetadata, BenchmarkIndex
+        
+        # 1. Group by ticker to compute q_start, q_end, net_contribution, and positive cash flows (buys)
+        tickers = set(tx.ticker for tx in all_transactions if tx.ticker)
+        
+        # Determine sector for each ticker
+        ticker_sectors = {}
+        if tickers:
+            metadata_records = self.db.query(AssetMetadata).filter(AssetMetadata.ticker.in_(tickers)).all()
+            for r in metadata_records:
+                ticker_sectors[r.ticker] = r.sector or "Unknown"
+
+        sector_initial_values = {}
+        sector_net_contributions = {}
+        sector_buys = {}
+
+        for ticker in tickers:
+            sector = ticker_sectors.get(ticker, "Unknown")
+            
+            q_start = Decimal('0.0')
+            q_end = Decimal('0.0')
+            cf_in_period = Decimal('0.0')
+            dividends_in_period = Decimal('0.0')
+            buys_in_period = Decimal('0.0')
+
+            for tx in all_transactions:
+                if tx.ticker != ticker:
+                    continue
+                if tx.transaction_type in ["DEPOSIT", "WITHDRAWAL"]:
+                    continue
+
+                qty, exec_price = self._get_adjusted_qty_price(tx, corp_actions_map)
+                
+                # Build Q_start
+                if tx.execution_date < start_date:
+                    if tx.transaction_type == "BUY":
+                        q_start += qty
+                    elif tx.transaction_type == "SELL":
+                        q_start -= qty
+                
+                # Build Q_end and CF
+                if tx.execution_date <= end_date:
+                    if tx.transaction_type == "BUY":
+                        q_end += qty
+                        if tx.execution_date >= start_date:
+                            cf_in_period += (qty * exec_price)
+                            buys_in_period += (qty * exec_price)
+                    elif tx.transaction_type == "SELL":
+                        q_end -= qty
+                        if tx.execution_date >= start_date:
+                            cf_in_period -= (qty * exec_price)
+                    elif tx.transaction_type == "DIVIDEND" and tx.execution_date >= start_date:
+                        dividends_in_period += (qty * exec_price)
+
+            p_start = Decimal(str(prices_start.get(ticker, 0.0)))
+            p_end = Decimal(str(prices_end.get(ticker, 0.0)))
+
+            a_start = q_start * p_start
+            a_end = q_end * p_end
+
+            # V_i,T = A_end - A_start - CF_T + Dividends
+            v_t = a_end - a_start - cf_in_period + dividends_in_period
+
+            sector_initial_values[sector] = sector_initial_values.get(sector, Decimal('0.0000')) + a_start
+            sector_net_contributions[sector] = sector_net_contributions.get(sector, Decimal('0.0000')) + v_t
+            sector_buys[sector] = sector_buys.get(sector, Decimal('0.0000')) + buys_in_period
+
+        # 2. Compute portfolio weights (w_p) and returns (r_p) per sector
+        v_start_total = sum(sector_initial_values.values(), Decimal('0.0000'))
+        
+        w_p = {}
+        r_p = {}
+        
+        for sector in sector_initial_values:
+            init_val = sector_initial_values[sector]
+            net_contrib = sector_net_contributions[sector]
+            
+            # Weight
+            w_p[sector] = init_val / v_start_total if v_start_total != Decimal('0.0000') else Decimal('0.0000')
+            
+            # Return
+            if init_val != Decimal('0.0000'):
+                r_p[sector] = net_contrib / init_val
+            else:
+                buys = sector_buys.get(sector, Decimal('0.0000'))
+                if buys != Decimal('0.0000'):
+                    r_p[sector] = net_contrib / buys
+                else:
+                    r_p[sector] = Decimal('0.0000')
+
+        # 3. Query BenchmarkIndex
+        # Find latest benchmark records <= end_date
+        latest_benchmark_rec = self.db.query(BenchmarkIndex).filter(
+            BenchmarkIndex.price_date <= end_date
+        ).order_by(BenchmarkIndex.price_date.desc()).first()
+
+        benchmark_records = []
+        if latest_benchmark_rec:
+            benchmark_name = latest_benchmark_rec.benchmark_name
+            benchmark_date = latest_benchmark_rec.price_date
+            benchmark_records = self.db.query(BenchmarkIndex).filter(
+                BenchmarkIndex.benchmark_name == benchmark_name,
+                BenchmarkIndex.price_date == benchmark_date
+            ).all()
+
+        w_b: Dict[str, Decimal] = {}
+        r_b: Dict[str, Decimal] = {}
+
+        if benchmark_records:
+            for rec in benchmark_records:
+                sec_name = rec.sector
+                w_b[sec_name] = Decimal(str(rec.sector_weight))
+                r_b[sec_name] = Decimal(str(rec.sector_return))
+        else:
+            # No BenchmarkIndex rows in the database.
+            # Use NSE sector indices from yfinance for per-sector benchmark returns.
+            # This gives each sector a different r_b, producing non-zero allocation effects.
+            # Equal weights are used for w_b (per-sector NSE weights require a paid data provider).
+            SECTOR_INDEX_MAP: Dict[str, str] = {
+                "Technology":          "^CNXIT",
+                "Financial Services":  "^NSEBANK",
+                "Consumer Cyclical":   "^CNXAUTO",
+                "Consumer Defensive":  "^CNXFMCG",
+                "Industrials":         "^CNXINFRA",
+                "Utilities":           "^CNXENERGY",
+                "Basic Materials":     "^CNXMETAL",
+                "Energy":              "^CNXENERGY",
             }
-        ]
+            FALLBACK_INDEX = "^NSEI"
+
+            import yfinance as yf
+            from datetime import timedelta as _td
+            yf_start = start_date.strftime("%Y-%m-%d")
+            yf_end   = (end_date + _td(days=1)).strftime("%Y-%m-%d")
+
+            def _fetch_index_return(symbol: str) -> Optional[Decimal]:
+                try:
+                    data = yf.download(symbol, start=yf_start, end=yf_end, auto_adjust=True, progress=False)
+                    if data.empty:
+                        return None
+                    close = data["Close"]
+                    if hasattr(close, "columns"):
+                        close = close.iloc[:, 0]
+                    p_s = float(close.iloc[0])
+                    p_e = float(close.iloc[-1])
+                    if p_s > 0:
+                        return Decimal(str((p_e - p_s) / p_s))
+                except Exception as exc:
+                    logger.warning(f"Failed to fetch {symbol} from yfinance: {exc}")
+                return None
+
+            # Pre-fetch NIFTY 50 as the universal fallback
+            nifty_return = _fetch_index_return(FALLBACK_INDEX) or Decimal('0.0000')
+
+            n_sectors = len(w_p)
+            equal_w = Decimal('1') / Decimal(str(n_sectors)) if n_sectors else Decimal('0.0000')
+
+            for sector in w_p:
+                symbol = SECTOR_INDEX_MAP.get(sector, FALLBACK_INDEX)
+                sector_return = _fetch_index_return(symbol)
+                if sector_return is None:
+                    sector_return = nifty_return
+                w_b[sector] = equal_w
+                r_b[sector] = sector_return
+
+
+        # R_b = sum(w_b^s * r_b^s)
+        R_b = sum((w_b[s] * r_b[s] for s in w_b), Decimal('0.0000'))
+
+        # Combine all sectors
+        all_sectors = set(w_p.keys()) | set(w_b.keys())
+        results = []
+        for sector in sorted(all_sectors):
+            w_p_s = w_p.get(sector, Decimal('0.0000'))
+            w_b_s = w_b.get(sector, Decimal('0.0000'))
+            r_p_s = r_p.get(sector, Decimal('0.0000'))
+            r_b_s = r_b.get(sector, Decimal('0.0000'))
+
+            allocation_effect = (w_p_s - w_b_s) * (r_b_s - R_b)
+            selection_effect = w_b_s * (r_p_s - r_b_s)
+            interaction_effect = (w_p_s - w_b_s) * (r_p_s - r_b_s)
+
+            results.append({
+                "sector": sector,
+                "allocation_effect": allocation_effect,
+                "selection_effect": selection_effect,
+                "interaction_effect": interaction_effect
+            })
+
+        return results
+
 
     def _compute_mwr_slicing(self, all_transactions: List[TransactionLedger], start_date: date, end_date: date, prices_end: Dict, corp_actions_map: Dict) -> List[Dict]:
         results = []
@@ -238,7 +415,7 @@ class LongTermAttributionEngine:
                 
             try:
                 xirr_val = pyxirr.xirr(dates, amounts)
-                if xirr_val is None:
+                if xirr_val is None or __import__('math').isinf(xirr_val) or __import__('math').isnan(xirr_val):
                     xirr_val = 0.0
             except Exception:
                 xirr_val = 0.0
@@ -273,7 +450,8 @@ class LongTermAttributionEngine:
             all_amounts.append(float(total_market_value))
             try:
                 agg_xirr = pyxirr.xirr(all_dates, all_amounts)
-                if agg_xirr is None: agg_xirr = 0.0
+                if agg_xirr is None or __import__('math').isinf(agg_xirr) or __import__('math').isnan(agg_xirr):
+                    agg_xirr = 0.0
             except Exception:
                 agg_xirr = 0.0
             
@@ -290,7 +468,8 @@ class LongTermAttributionEngine:
                 # Reverse signs for portfolio XIRR calculation so DEPOSITS are negative (outflows from user to portfolio)
                 port_amounts_adj = [-a if i < len(portfolio_amounts)-1 else a for i, a in enumerate(portfolio_amounts)]
                 agg_xirr = pyxirr.xirr(portfolio_dates, port_amounts_adj)
-                if agg_xirr is None: agg_xirr = 0.0
+                if agg_xirr is None or __import__('math').isinf(agg_xirr) or __import__('math').isnan(agg_xirr):
+                    agg_xirr = 0.0
             except Exception:
                 agg_xirr = 0.0
                 

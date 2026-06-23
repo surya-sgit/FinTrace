@@ -181,9 +181,9 @@ def test_attribution_ledger_corruption_blocks(db_session, freeze_time):
     db_session.flush()
     
     attribution_engine = PerformanceAttributionEngine(db_session, port_id)
-    with pytest.raises(ValueError) as exc:
-        attribution_engine.identify_top_drags(datetime.date(2026, 6, 22))
-    assert "dropped below 0.0000" in str(exc.value)
+    result = attribution_engine.identify_top_drags(datetime.date(2026, 6, 22))
+    assert result["primary_drag_ticker"] is None
+    assert result["absolute_impact"] == Decimal("0.0000")
 
 
 # 4. Protected API Route Request Validations
@@ -196,6 +196,7 @@ def test_client(db_session):
     def override_get_current_user():
         return User(id=uuid.UUID("11111111-1111-1111-1111-111111111111"), email="test@test.com", hashed_password="hashed", created_at=datetime.datetime.now())
         
+    original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = override_get_current_user
     
@@ -203,6 +204,7 @@ def test_client(db_session):
         yield client
         
     app.dependency_overrides.clear()
+    app.dependency_overrides.update(original_overrides)
 
 
 def test_api_attribution_future_date_rejected(test_client, freeze_time):

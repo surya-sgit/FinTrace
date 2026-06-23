@@ -78,12 +78,24 @@ class TransactionService:
             raise ValueError("One or more records in this file have already been processed (Duplicate Checksum).")
 
         # Market data synchronization
-        unique_tickers = {t.ticker.upper() for t in transaction_objs}
+        unique_tickers = {t.ticker.upper() for t in transaction_objs if t.ticker and t.ticker.strip()}
         earliest_date = min(t.execution_date for t in transaction_objs)
         today = date.today()
 
         for ticker in unique_tickers:
-            self.market_service.fetch_historical_prices(ticker, earliest_date, today)
-            self.corp_service.sync_splits_for_ticker(ticker)
+            try:
+                self.market_service.fetch_and_cache_metadata(ticker)
+            except Exception as e:
+                logger.error(f"Error fetching metadata for {ticker}: {str(e)}")
+            
+            try:
+                self.market_service.fetch_historical_prices(ticker, earliest_date, today)
+            except Exception as e:
+                logger.error(f"Error fetching historical prices for {ticker}: {str(e)}")
+                
+            try:
+                self.corp_service.sync_splits_for_ticker(ticker)
+            except Exception as e:
+                logger.error(f"Error syncing splits for {ticker}: {str(e)}")
 
         return len(db_transactions)
