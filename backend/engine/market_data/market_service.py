@@ -1,11 +1,14 @@
 import yfinance as yf
 import pandas as pd
+import logging
 from datetime import date, timedelta
 from typing import List
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 
 from domain.models import AssetPrices
+
+logger = logging.getLogger(__name__)
 
 class MarketDataService:
     def __init__(self, db_session: Session):
@@ -20,13 +23,13 @@ class MarketDataService:
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d')
 
-        print(f"Fetching market data for {ticker} from {start_str} to {end_str}...")
+        logger.info(f"Fetching market data for {ticker} from {start_str} to {end_str}...")
 
         try:
             ticker_data = yf.download(ticker, start=start_str, end=end_str, progress=False)
 
             if ticker_data.empty:
-                print(f"Warning: No data returned from yfinance for {ticker}.")
+                logger.warning(f"No data returned from yfinance for {ticker}.")
                 return
 
             # Flatten the MultiIndex columns returned by newer versions of yfinance
@@ -76,11 +79,11 @@ class MarketDataService:
 
             self.db.execute(stmt)
             self.db.commit()
-            print(f"Successfully cached {len(records)} days of pricing for {ticker}.")
+            logger.info(f"Successfully cached {len(records)} days of pricing for {ticker}.")
 
         except Exception as e:
             self.db.rollback()
-            print(f"Failed to fetch market data for {ticker}: {str(e)}")
+            logger.error(f"Failed to fetch market data for {ticker}: {str(e)}", exc_info=True)
             raise e
 
     def get_price(self, ticker: str, target_date: date) -> float:

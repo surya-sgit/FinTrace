@@ -1,16 +1,20 @@
 import os
 import requests
 import datetime
+import logging
 from decimal import Decimal
 from typing import List
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from domain.models import CorporateActionEvent
+
+logger = logging.getLogger(__name__)
 
 class CorporateActionService:
     def __init__(self, db_session: Session):
         self.db = db_session
-        self.api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "demo") # Free tier placeholder
+        self.api_key = settings.ALPHA_VANTAGE_API_KEY
         self.base_url = "https://www.alphavantage.co/query"
 
     def _translate_ticker_for_alpha_vantage(self, ticker: str) -> str:
@@ -38,15 +42,18 @@ class CorporateActionService:
             }
             response = requests.get(self.base_url, params=params, timeout=10)
             if response.status_code != 200:
+                logger.error(f"Alpha Vantage API returned {response.status_code} for {ticker}")
                 return
 
             data = response.json()
             
             # Alpha Vantage returns an Information or Note string when the API key is restricted
             if "Information" in data or "Note" in data:
+                logger.warning(f"Alpha Vantage API key restricted. Failed to sync splits for {ticker}. Message: {data}")
                 return
 
             if "data" not in data:
+                logger.info(f"No split data found for {ticker}")
                 return
 
             splits = data["data"]
@@ -71,11 +78,11 @@ class CorporateActionService:
                     self.db.add(new_event)
 
             self.db.commit()
+            logger.info(f"Successfully synced corporate actions for {ticker}")
             
         except Exception as e:
             self.db.rollback()
-            # Fail silently for MVP if network fails or rate limited
-            pass
+            logger.error(f"Failed to sync corporate actions for {ticker}: {str(e)}", exc_info=True)
 
     def sync_splits_for_tickers(self, tickers: List[str]) -> None:
         """
