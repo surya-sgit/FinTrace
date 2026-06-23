@@ -185,3 +185,4 @@ class LongTermAttributionResponse(BaseModel):
     organic_variation: List[OrganicVariationResponse]
     brinson_fachler: List[BrinsonFachlerResponse]
     mwr_slicing: List[MWRSlicingResponse]
+    is_synthetic_cash_proxy: bool = False

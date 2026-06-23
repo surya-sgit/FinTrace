@@ -13,14 +13,27 @@ class CorporateActionService:
         self.api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "demo") # Free tier placeholder
         self.base_url = "https://www.alphavantage.co/query"
 
+    def _translate_ticker_for_alpha_vantage(self, ticker: str) -> str:
+        """
+        Translates Yahoo Finance style tickers to Alpha Vantage style tickers.
+        e.g., RELIANCE.NS -> NSE:RELIANCE
+        """
+        if ticker.endswith(".NS"):
+            return f"NSE:{ticker[:-3]}"
+        elif ticker.endswith(".BO") or ticker.endswith(".BSE"):
+            suffix_len = len(ticker.split('.')[-1]) + 1
+            return f"BSE:{ticker[:-suffix_len]}"
+        return ticker
+
     def sync_splits_for_ticker(self, ticker: str) -> None:
         """
         Fetches historical split data from Alpha Vantage and upserts it into the CorporateActionEvent table.
         """
         try:
+            av_ticker = self._translate_ticker_for_alpha_vantage(ticker)
             params = {
                 "function": "SPLITS",
-                "symbol": ticker,
+                "symbol": av_ticker,
                 "apikey": self.api_key
             }
             response = requests.get(self.base_url, params=params, timeout=10)
@@ -28,6 +41,11 @@ class CorporateActionService:
                 return
 
             data = response.json()
+            
+            # Alpha Vantage returns an Information or Note string when the API key is restricted
+            if "Information" in data or "Note" in data:
+                return
+
             if "data" not in data:
                 return
 

@@ -32,7 +32,8 @@ class LongTermAttributionEngine:
                 "end_date": end_date,
                 "organic_variation": [],
                 "brinson_fachler": [],
-                "mwr_slicing": []
+                "mwr_slicing": [],
+                "is_synthetic_cash_proxy": False
             }
 
         # Fetch all transactions up to end_date
@@ -60,13 +61,16 @@ class LongTermAttributionEngine:
         brinson_fachler = self._compute_brinson_fachler(transactions, start_date, end_date, prices_start, prices_end, corp_actions_map)
         mwr_slicing = self._compute_mwr_slicing(transactions, start_date, end_date, prices_end, corp_actions_map)
 
+        is_synthetic_cash_proxy = not any(tx.transaction_type in ["DEPOSIT", "WITHDRAWAL"] for tx in transactions)
+
         return {
             "portfolio_id": self.portfolio_id,
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "organic_variation": organic_variation,
             "brinson_fachler": brinson_fachler,
-            "mwr_slicing": mwr_slicing
+            "mwr_slicing": mwr_slicing,
+            "is_synthetic_cash_proxy": is_synthetic_cash_proxy
         }
 
     def _get_corporate_actions(self, tickers: List[str]) -> Dict[str, List]:
