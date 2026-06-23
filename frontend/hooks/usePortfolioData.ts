@@ -42,20 +42,27 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
     const fetchData = async () => {
         setIsLoading(true);
         setError('');
-        try {
-            // 1. Fetch Portfolio Details
-            const portRes = await api.get(`/portfolios/${portfolioId}`);
-            setPortfolio(portRes.data);
+        setIsAttributionLoading(true);
+        setIsLtLoading(true);
+        setIsRiskLoading(true);
+        setIsBehavioralLoading(true);
+        setAttributionError('');
+        setLtError('');
+        setRiskError('');
+        setBehavioralError('');
 
-            // 2. Fire all analytics fetches concurrently
-            setIsAttributionLoading(true);
-            setIsLtLoading(true);
-            setIsRiskLoading(true);
-            setIsBehavioralLoading(true);
-            setAttributionError('');
-            setLtError('');
-            setRiskError('');
-            setBehavioralError('');
+        try {
+            // 1. Fire Portfolio Details fetch without blocking others
+            const fetchPortfolio = async () => {
+                try {
+                    const portRes = await api.get(`/portfolios/${portfolioId}`);
+                    setPortfolio(portRes.data);
+                } catch (err: any) {
+                    setError(err.response?.data?.detail || 'Failed to fetch portfolio details.');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
 
             const fetchReports = async () => {
                 try {
@@ -117,12 +124,14 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
 
             // Execute all analytics fetches in parallel
             await Promise.allSettled([
+                fetchPortfolio(),
                 fetchReports(),
                 fetchAttribution(),
                 fetchLt(),
                 fetchRisk(),
                 fetchBehavioral()
             ]);
+
 
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to load portfolio details.');

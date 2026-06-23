@@ -1,19 +1,20 @@
 import logging
 import math
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 import yfinance as yf
 from sqlalchemy.orm import Session
 
-from domain.models import AssetPrices, TransactionLedger
+from domain.models import AssetPrices, TransactionLedger, PortfolioRiskSnapshot
 
 logger = logging.getLogger(__name__)
 
 RISK_FREE_RATE_ANNUAL = 0.065
 TRADING_DAYS_PER_YEAR = 252
 NIFTY_SYMBOL = "^NSEI"
+CACHE_TTL_HOURS = 24
 
 
 def _flatten_close(data):
@@ -58,6 +59,26 @@ class RiskMetricsEngine:
             )
             start_date = first_tx.execution_date if first_tx else end_date
 
+        # 1. Check for valid cached snapshot
+        snapshot = self.db.query(PortfolioRiskSnapshot).filter_by(portfolio_id=self.portfolio_id).first()
+        if snapshot:
+            age = datetime.utcnow() - snapshot.computed_at
+            # Use cache if not expired and dates match exactly
+            if age < timedelta(hours=CACHE_TTL_HOURS) and snapshot.start_date == start_date and snapshot.end_date == end_date:
+                logger.info(f"Using cached risk metrics for portfolio {self.portfolio_id}")
+                return {
+                    "portfolio_id": self.portfolio_id,
+                    "start_date": snapshot.start_date.isoformat(),
+                    "end_date": snapshot.end_date.isoformat(),
+                    "alpha": float(snapshot.alpha),
+                    "beta": float(snapshot.beta),
+                    "max_drawdown": float(snapshot.max_drawdown),
+                    "annualised_volatility": float(snapshot.annualised_volatility),
+                    "sharpe_ratio": float(snapshot.sharpe_ratio),
+                    "sortino_ratio": float(snapshot.sortino_ratio),
+                    "holding_periods": snapshot.holding_periods,
+                }
+
         transactions = (
             self.db.query(TransactionLedger)
             .filter(
@@ -86,6 +107,40 @@ class RiskMetricsEngine:
         sortino = self._compute_sortino(portfolio_returns)
         holding_periods = self._compute_holding_periods(transactions, end_date)
 
+        # 3. Save snapshot to cache
+        if snapshot:
+            snapshot.computed_at = datetime.utcnow()
+            snapshot.start_date = start_date
+            snapshot.end_date = end_date
+            snapshot.alpha = Decimal(str(alpha))
+            snapshot.beta = Decimal(str(beta))
+            snapshot.max_drawdown = Decimal(str(max_drawdown))
+            snapshot.annualised_volatility = Decimal(str(volatility))
+            snapshot.sharpe_ratio = Decimal(str(sharpe))
+            snapshot.sortino_ratio = Decimal(str(sortino))
+            snapshot.holding_periods = holding_periods
+        else:
+            snapshot = PortfolioRiskSnapshot(
+                portfolio_id=self.portfolio_id,
+                computed_at=datetime.utcnow(),
+                start_date=start_date,
+                end_date=end_date,
+                alpha=Decimal(str(alpha)),
+                beta=Decimal(str(beta)),
+                max_drawdown=Decimal(str(max_drawdown)),
+                annualised_volatility=Decimal(str(volatility)),
+                sharpe_ratio=Decimal(str(sharpe)),
+                sortino_ratio=Decimal(str(sortino)),
+                holding_periods=holding_periods,
+            )
+            self.db.add(snapshot)
+        
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to save risk snapshot to DB: {e}")
+            self.db.rollback()
+
         return {
             "portfolio_id": self.portfolio_id,
             "start_date": start_date.isoformat(),
@@ -98,6 +153,7 @@ class RiskMetricsEngine:
             "sortino_ratio": sortino,
             "holding_periods": holding_periods,
         }
+
 
     # ------------------------------------------------------------------
     # NAV reconstruction

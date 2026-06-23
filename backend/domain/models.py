@@ -381,7 +381,31 @@ class CorporateActionEvent(Base):
     ex_date = Column(Date, index=True, nullable=False)
     action_type = Column(String(16), nullable=False) # 'SPLIT' or 'BONUS'
     adjustment_factor = Column(Numeric(18, 4), nullable=False) # e.g. 10.0 for a 1:10 split
-    
+
     __table_args__ = (
         UniqueConstraint('ticker', 'ex_date', 'action_type', name='uq_corp_action_ticker_date'),
     )
+
+
+class PortfolioRiskSnapshot(Base):
+    """
+    Cached risk metrics for a portfolio.
+    Computed once and served from DB on subsequent requests.
+    Invalidated (deleted) whenever new transactions are uploaded.
+    TTL-based re-computation: if computed_at is older than CACHE_TTL_HOURS, recompute.
+    """
+    __tablename__ = "portfolio_risk_snapshots"
+
+    portfolio_id = Column(UUID(as_uuid=True), ForeignKey("portfolios.id"), primary_key=True)
+    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+
+    alpha = Column(Numeric(18, 6), nullable=False, default=0)
+    beta = Column(Numeric(18, 6), nullable=False, default=1)
+    max_drawdown = Column(Numeric(18, 6), nullable=False, default=0)
+    annualised_volatility = Column(Numeric(18, 6), nullable=False, default=0)
+    sharpe_ratio = Column(Numeric(18, 4), nullable=False, default=0)
+    sortino_ratio = Column(Numeric(18, 4), nullable=False, default=0)
+    holding_periods = Column(JSONB, nullable=False, default=list)
+

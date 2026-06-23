@@ -93,6 +93,12 @@ class TransactionService:
 
         try:
             self.db.add_all(db_transactions)
+            
+            # Invalidate risk metrics cache
+            self.db.query(models.PortfolioRiskSnapshot).filter(
+                models.PortfolioRiskSnapshot.portfolio_id == portfolio.id
+            ).delete()
+
             self.db.commit()
             logger.info(f"Successfully inserted {len(db_transactions)} transactions for portfolio {portfolio.id}")
         except IntegrityError:
