@@ -149,14 +149,14 @@ class TokenData(BaseModel):
 # ---------------------------------------------------------
 class DragContribution(BaseModel):
     ticker: str
-    shares_held: float
-    legacy_drift: float
-    intraday_impact: float
-    corporate_shield: float
-    net_contribution: float
+    shares_held: Decimal
+    legacy_drift: Decimal
+    intraday_impact: Decimal
+    corporate_shield: Decimal
+    net_contribution: Decimal
 
 class PerformanceAttributionResponse(BaseModel):
     analysis_date: str
     primary_drag_ticker: Optional[str] = None
-    absolute_impact: float
+    absolute_impact: Decimal
     full_contribution_matrix: List[DragContribution]

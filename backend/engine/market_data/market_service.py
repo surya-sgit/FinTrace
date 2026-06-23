@@ -62,8 +62,16 @@ class MarketDataService:
                 return
 
             stmt = insert(AssetPrices).values(records)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=['ticker', 'price_date']
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['ticker', 'price_date'],
+                set_={
+                    'open_price': stmt.excluded.open_price,
+                    'high_price': stmt.excluded.high_price,
+                    'low_price': stmt.excluded.low_price,
+                    'close_price': stmt.excluded.close_price,
+                    'adjusted_close': stmt.excluded.adjusted_close,
+                    'volume': stmt.excluded.volume
+                }
             )
 
             self.db.execute(stmt)
@@ -90,3 +98,35 @@ class MarketDataService:
             return float(price_record.adjusted_close)
 
         raise ValueError(f"No historical price found for {ticker} on or before {target_date}")
+
+    def get_prices_bulk(self, tickers: List[str], target_dates: List[date]) -> dict[date, dict[str, float]]:
+        """
+        Retrieves adjusted close prices for multiple tickers across multiple dates efficiently.
+        Returns a dictionary mapping: { date: { ticker: price } }
+        """
+        from sqlalchemy import func
+        result = {d: {} for d in target_dates}
+        
+        if not tickers or not target_dates:
+            return result
+            
+        for d in target_dates:
+            # Subquery to find the most recent trading date on or before target date for each ticker
+            subq = self.db.query(
+                AssetPrices.ticker,
+                func.max(AssetPrices.price_date).label('max_date')
+            ).filter(
+                AssetPrices.ticker.in_(tickers),
+                AssetPrices.price_date <= d
+            ).group_by(AssetPrices.ticker).subquery()
+            
+            # Join back to get the actual adjusted close price
+            records = self.db.query(AssetPrices).join(
+                subq,
+                (AssetPrices.ticker == subq.c.ticker) & (AssetPrices.price_date == subq.c.max_date)
+            ).all()
+            
+            for r in records:
+                result[d][r.ticker] = float(r.adjusted_close)
+                
+        return result
