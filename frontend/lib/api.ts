@@ -1,11 +1,10 @@
 import axios from 'axios';
 
 // Create a configured Axios instance
+// frontend/lib/api.ts
 const api = axios.create({
-    baseURL: 'http://192.168.1.3:8000/api/v1', // Your FastAPI base URL
-    headers: {
-        'Content-Type': 'application/json',
-    },
+    baseURL: 'http://localhost:8000/api/v1', 
+    headers: { 'Content-Type': 'application/json' },
 });
 
 // Request Interceptor: Attach the JWT token automatically

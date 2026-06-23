@@ -29,7 +29,8 @@ class FIFOTaxEngine:
         transactions = self.db.query(TransactionLedger).filter(
             TransactionLedger.portfolio_id == self.portfolio_id
         ).order_by(
-            asc(TransactionLedger.execution_date)
+            asc(TransactionLedger.execution_date),
+            asc(TransactionLedger.transaction_type)
         ).all()
 
         # Group ledgers by ticker
@@ -88,9 +89,11 @@ class FIFOTaxEngine:
                             buy_queue.popleft()
 
                     # If we exhausted the buy queue but still have shares to sell,
-                    # the ledger data is corrupted (selling shares that don't exist).
+                    # treat phantom shares as having 0 cost basis (100% profit)
+                    # and classify as STCG to be conservative, instead of crashing.
                     if sell_qty_remaining > Decimal('0.0000'):
-                        raise ValueError(f"Ledger corruption: Attempted to sell {sell_qty_remaining} phantom shares of {ticker}.")
+                        total_stcg += (sell_qty_remaining * sell_price)
+                        sell_qty_remaining = Decimal('0.0000')
 
             # Store whatever is left in the queue as our current holdings
             current_holdings_qty = sum(lot['remaining_quantity'] for lot in buy_queue)

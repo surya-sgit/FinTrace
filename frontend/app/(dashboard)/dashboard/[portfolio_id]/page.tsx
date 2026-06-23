@@ -74,6 +74,9 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
     const [isDownloading, setIsDownloading] = useState(false);
     const [error, setError] = useState('');
     const [uploadSuccess, setUploadSuccess] = useState('');
+    const [uploadRowErrors, setUploadRowErrors] = useState<any[]>([]);
+    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [pdfPassword, setPdfPassword] = useState('');
 
     const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
     const [attributionData, setAttributionData] = useState<AttributionReport | null>(null);
@@ -124,16 +127,32 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
         }
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        setError('');
+        setUploadSuccess('');
+        setSelectedFile(file);
+        setPdfPassword('');
+
+        if (file.name.toLowerCase().endsWith('.csv')) {
+            await processUpload(file, '');
+        }
+        // If it's a PDF, we just wait for the user to enter the password and click submit
+    };
+
+    const processUpload = async (file: File, password?: string) => {
         setIsUploading(true);
         setError('');
         setUploadSuccess('');
+        setUploadRowErrors([]);
 
         const formData = new FormData();
         formData.append('file', file);
+        if (password) {
+            formData.append('password', password);
+        }
 
         try {
             await api.post(`/portfolios/${portfolio_id}/upload`, formData, {
@@ -142,20 +161,27 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                 },
             });
             setUploadSuccess('Transactions successfully ingested and market data synced.');
+            setSelectedFile(null);
+            setPdfPassword('');
             fetchData();
         } catch (err: any) {
-            let errorMsg = 'Failed to upload CSV.';
-            if (err.response?.data?.detail) {
-                if (typeof err.response.data.detail === 'string') {
-                    errorMsg = err.response.data.detail;
-                } else if (err.response.data.detail.message) {
-                    errorMsg = err.response.data.detail.message;
+            let errorMsg = 'Failed to upload file.';
+            if (err.response) {
+                const { status: s, data } = err.response;
+                if (s === 422) {
+                    setUploadRowErrors(data.detail.errors || []);
+                    errorMsg = data.detail.message || 'Validation failed';
+                } else if (s === 401 || s === 400) {
+                    errorMsg = data.detail || 'Invalid request';
+                } else {
+                    errorMsg = err.message;
                 }
+            } else {
+                errorMsg = err.message;
             }
             setError(errorMsg);
         } finally {
             setIsUploading(false);
-            e.target.value = '';
         }
     };
 
@@ -237,7 +263,20 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
             <main className="max-w-7xl mx-auto px-6 py-8">
                 {error && (
                     <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-md border border-red-200">
-                        {error}
+                        <p>{error}</p>
+                        {uploadRowErrors.length > 0 && (
+                            <div className="mt-4">
+                                <h4 className="font-semibold mb-2">Row Validation Errors:</h4>
+                                <ul className="list-disc list-inside text-sm space-y-1">
+                                    {uploadRowErrors.map((e, i) => (
+                                        <li key={i}>
+                                            <span className="font-medium">Row {e.row}:</span>{' '}
+                                            {Array.isArray(e.errors) ? e.errors.map((err: any) => err.msg || err).join(', ') : e.errors}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
                     </div>
                 )}
                 {uploadSuccess && (
@@ -280,31 +319,72 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
 
                         {/* Ingestion Engine */}
                         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                            <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
-                                <UploadCloud className="w-5 h-5 mr-2 text-blue-600" /> Data Ingestion
-                            </h3>
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-semibold text-gray-900 flex items-center">
+                                    <UploadCloud className="w-5 h-5 mr-2 text-blue-600" /> Data Ingestion
+                                </h3>
+                                <a href="/template.csv" download className="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center bg-blue-50 px-2 py-1 rounded transition-colors">
+                                    <Download className="w-3.5 h-3.5 mr-1" /> Template
+                                </a>
+                            </div>
                             <p className="text-sm text-gray-500 mb-4">
-                                Upload a broker CSV to sync transaction ledgers.
+                                Upload a broker CSV or CAS PDF to sync transaction ledgers.
                             </p>
-                            <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors relative">
-                                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                    {isUploading ? (
-                                        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                                    ) : (
-                                        <>
-                                            <UploadCloud className="w-8 h-8 text-gray-400 mb-2" />
-                                            <p className="text-sm text-gray-500 font-medium">Click to upload CSV</p>
-                                        </>
-                                    )}
+                            
+                            {!selectedFile || selectedFile.name.toLowerCase().endsWith('.csv') ? (
+                                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors relative">
+                                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                        {isUploading ? (
+                                            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+                                        ) : (
+                                            <>
+                                                <UploadCloud className="w-8 h-8 text-gray-400 mb-2" />
+                                                <p className="text-sm text-gray-500 font-medium">Click to upload CSV or PDF</p>
+                                            </>
+                                        )}
+                                    </div>
+                                    <input
+                                        type="file"
+                                        accept=".csv, .pdf"
+                                        className="hidden"
+                                        onChange={handleFileSelect}
+                                        disabled={isUploading}
+                                    />
+                                </label>
+                            ) : (
+                                <div className="p-4 border border-blue-200 bg-blue-50 rounded-lg">
+                                    <p className="text-sm font-semibold text-blue-900 mb-2 truncate">
+                                        Selected: {selectedFile.name}
+                                    </p>
+                                    <p className="text-xs text-blue-700 mb-3">
+                                        CAS PDFs are usually password protected (often your PAN).
+                                    </p>
+                                    <input
+                                        type="password"
+                                        placeholder="Enter PDF Password"
+                                        className="w-full px-3 py-2 border border-blue-300 rounded-md text-gray-900 mb-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                                        value={pdfPassword}
+                                        onChange={(e) => setPdfPassword(e.target.value)}
+                                        disabled={isUploading}
+                                    />
+                                    <div className="flex space-x-2">
+                                        <button 
+                                            onClick={() => { setSelectedFile(null); setPdfPassword(''); }}
+                                            className="flex-1 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 font-medium text-sm transition-colors"
+                                            disabled={isUploading}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={() => processUpload(selectedFile, pdfPassword)}
+                                            className="flex-1 flex items-center justify-center px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium text-sm transition-colors disabled:opacity-70"
+                                            disabled={isUploading || !pdfPassword}
+                                        >
+                                            {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Upload'}
+                                        </button>
+                                    </div>
                                 </div>
-                                <input
-                                    type="file"
-                                    accept=".csv"
-                                    className="hidden"
-                                    onChange={handleFileUpload}
-                                    disabled={isUploading}
-                                />
-                            </label>
+                            )}
                         </div>
 
                         {/* Tax Compliance Hub */}

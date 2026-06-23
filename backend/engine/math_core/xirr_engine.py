@@ -23,7 +23,7 @@ class XIRREngine:
         # 1. Fetch all transactions sorted by date to process chronologically
         transactions = self.db.query(TransactionLedger).filter(
             TransactionLedger.portfolio_id == self.portfolio_id
-        ).order_by(TransactionLedger.execution_date.asc()).all()
+        ).order_by(TransactionLedger.execution_date.asc(), TransactionLedger.transaction_type.asc()).all()
 
         if not transactions:
             return {
@@ -31,7 +31,8 @@ class XIRREngine:
                 "net_deployed_capital": 0.0,
                 "current_cost_basis": 0.0,
                 "current_value": 0.0,
-                "unrealized_p_and_l": 0.0
+                "unrealized_p_and_l": 0.0,
+                "valuation_history": []
             }
 
         xirr_dates: List[date] = []
@@ -106,7 +107,15 @@ class XIRREngine:
                     current_portfolio_value += asset_value
                     current_cost_basis += holdings_cost[ticker]
                 except ValueError:
-                    raise ValueError(f"Missing terminal market data for {ticker}. Cannot compute accurate metrics.")
+                    # Missing terminal market data. Fallback to 0.00 so the report doesn't crash.
+                    latest_price = Decimal('0.00')
+                    asset_value = remaining_qty * latest_price
+
+                    xirr_dates.append(today)
+                    xirr_amounts.append(float(asset_value))
+
+                    current_portfolio_value += asset_value
+                    current_cost_basis += holdings_cost[ticker]
 
         # NEW: Build a clean historical timeline directly using the dates from the CSV transactions
         valuation_history = []

@@ -1,11 +1,12 @@
-import csv
-import io
+
 import hashlib
 import uuid
 from datetime import date
-from typing import List
+from typing import Optional
+from engine.ingestion.factory import ParserFactory
+from engine.ingestion.base import IngestionValidationError
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
@@ -31,88 +32,75 @@ def generate_row_checksum(portfolio_id: str, row_data: dict) -> str:
 async def upload_transaction_ledger(
     portfolio_id: uuid.UUID,
     file: UploadFile = File(...),
+    password: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     # 1. Verify Portfolio Exists
-    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id,models.Portfolio.user_id == current_user.id).first()
+    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id, models.Portfolio.user_id == current_user.id).first()
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
 
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(status_code=400, detail="Invalid file type. Only CSV files are accepted.")
+    # 2. Determine parser based on MIME type
+    try:
+        parser = ParserFactory.get_parser(file, password=password)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
 
-    # 2. Read and Decode File Stream
-    contents = await file.read()
-    decoded_file = contents.decode('utf-8')
-    csv_reader = csv.DictReader(io.StringIO(decoded_file))
+    # 3. Read file bytes (async)
+    file_bytes = await file.read()
 
-    if not csv_reader.fieldnames:
-        raise HTTPException(status_code=400, detail="CSV file is empty or missing headers.")
-
-    csv_reader.fieldnames = [name.strip().lower() for name in csv_reader.fieldnames]
-
-    valid_records = []
-    error_log = []
-
-    # 3. Row-by-Row Validation Pipeline
-    for row_number, row in enumerate(csv_reader, start=2):
-        try:
-            validated_data = schemas.TransactionCreate(**row)
-            # Explicitly cast UUID to string for the checksum generator
-            checksum = generate_row_checksum(str(portfolio_id), row)
-
-            db_transaction = models.TransactionLedger(
-                portfolio_id=portfolio.id,
-                ticker=validated_data.ticker.upper(),
-                transaction_type=validated_data.transaction_type.value,
-                quantity=validated_data.quantity,
-                price_per_unit=validated_data.price_per_unit,
-                brokerage_fees=validated_data.brokerage_fees,
-                execution_date=validated_data.execution_date,
-                settlement_date=validated_data.settlement_date,
-                checksum=checksum
-            )
-            valid_records.append(db_transaction)
-
-        except ValidationError as e:
-            error_log.append({"row": row_number, "errors": e.errors()})
-        except Exception as e:
-            error_log.append({"row": row_number, "errors": str(e)})
-
-    if error_log:
+    # 4. Parse into TransactionCreate objects – any validation issue raises IngestionValidationError
+    try:
+        transaction_objs = parser.parse(file_bytes)
+    except IngestionValidationError as ive:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"message": "File validation failed.", "errors": error_log}
+            detail={"message": "File validation failed.", "errors": ive.errors},
         )
 
-    if not valid_records:
-        raise HTTPException(status_code=400, detail="The uploaded CSV contained no valid transaction rows.")
+    if not transaction_objs:
+        raise HTTPException(status_code=400, detail="No valid transaction rows found in the uploaded file.")
 
-    # 4. Safe Database Insertion
+    # 5. Convert to DB models with checksum generation
+    db_transactions = []
+    for txn in transaction_objs:
+        row_dict = txn.model_dump()
+        checksum = generate_row_checksum(str(portfolio_id), row_dict)
+        db_txn = models.TransactionLedger(
+            portfolio_id=portfolio.id,
+            ticker=txn.ticker.upper(),
+            transaction_type=txn.transaction_type.value,
+            quantity=txn.quantity,
+            price_per_unit=txn.price_per_unit,
+            brokerage_fees=txn.brokerage_fees,
+            execution_date=txn.execution_date,
+            settlement_date=txn.settlement_date,
+            checksum=checksum,
+        )
+        db_transactions.append(db_txn)
+
+    # 6. Atomic DB insertion
     try:
-        db.add_all(valid_records)
+        db.add_all(db_transactions)
         db.commit()
     except IntegrityError:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="One or more records in this file have already been processed (Duplicate Checksum)."
+            detail="One or more records in this file have already been processed (Duplicate Checksum).",
         )
 
-    # 5. Trigger Market Data Synchronization
-    unique_tickers = set([record.ticker for record in valid_records])
-
-    earliest_date = min([record.execution_date for record in valid_records])
+    # 7. Market data synchronization (same as before)
+    unique_tickers = {t.ticker.upper() for t in transaction_objs}
+    earliest_date = min(t.execution_date for t in transaction_objs)
     today = date.today()
-
     market_service = MarketDataService(db)
-
     for ticker in unique_tickers:
         market_service.fetch_historical_prices(ticker, earliest_date, today)
 
     return {
         "status": "success",
-        "message": f"Successfully ingested {len(valid_records)} transactions into the ledger and synced market data.",
-        "portfolio_id": str(portfolio_id)
+        "message": f"Successfully ingested {len(db_transactions)} transactions into the ledger and synced market data.",
+        "portfolio_id": str(portfolio_id),
     }
