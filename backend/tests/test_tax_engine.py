@@ -21,6 +21,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from domain.models import Base, TransactionLedger, CorporateActionEvent, AssetPrices
+
+
+def _dividend_event(ticker, per_share, ex_date):
+    return CorporateActionEvent(
+        id=uuid.uuid4(), ticker=ticker, ex_date=ex_date,
+        action_type="DIVIDEND", adjustment_factor=Decimal(str(per_share)),
+    )
 from engine.math_core.tax_engine import FIFOTaxEngine
 from engine.math_core import tax_rules
 
@@ -63,20 +70,20 @@ def _pid():
     return uuid.uuid4()
 
 
-def _buy(pid, ticker, qty, price, d, fee=0, chk=None):
+def _buy(pid, ticker, qty, price, d, fee=0, chk=None, asset_class="EQUITY"):
     return TransactionLedger(
         id=uuid.uuid4(), portfolio_id=pid, ticker=ticker, transaction_type="BUY",
         quantity=Decimal(str(qty)), price_per_unit=Decimal(str(price)),
-        brokerage_fees=Decimal(str(fee)), execution_date=d,
+        brokerage_fees=Decimal(str(fee)), asset_class=asset_class, execution_date=d,
         settlement_date=d + datetime.timedelta(days=1), checksum=chk or str(uuid.uuid4()),
     )
 
 
-def _sell(pid, ticker, qty, price, d, fee=0, chk=None):
+def _sell(pid, ticker, qty, price, d, fee=0, chk=None, asset_class="EQUITY"):
     return TransactionLedger(
         id=uuid.uuid4(), portfolio_id=pid, ticker=ticker, transaction_type="SELL",
         quantity=Decimal(str(qty)), price_per_unit=Decimal(str(price)),
-        brokerage_fees=Decimal(str(fee)), execution_date=d,
+        brokerage_fees=Decimal(str(fee)), asset_class=asset_class, execution_date=d,
         settlement_date=d + datetime.timedelta(days=1), checksum=chk or str(uuid.uuid4()),
     )
 
@@ -300,6 +307,150 @@ def test_zero_value_dividend_rejected_by_schema():
             quantity=Decimal("20"), price_per_unit=Decimal("0"),
             execution_date=datetime.date(2024, 3, 1),
         )
+
+
+def test_auto_dividend_from_holdings_times_per_share(db_session):
+    """Dividend auto-derived from holdings on the ex-date, no manual row needed.
+    Hold 100 INFY on ex-date 2024-06-01, Rs.7/share -> Rs.700 dividend (FY2024-25)."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INFY.NS", 100, 1000, datetime.date(2022, 1, 1)),
+        _dividend_event("INFY.NS", 7, datetime.date(2024, 6, 1)),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    assert report["dividends"]["2024-25"] == Decimal("700")
+
+
+def test_auto_dividend_uses_shares_held_on_ex_date(db_session):
+    """Only shares held on the ex-date earn the dividend. Buy 100, sell 60 before the
+    ex-date -> 40 held x Rs.5 = Rs.200."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "TCS.NS", 100, 1000, datetime.date(2023, 1, 1)),
+        _sell(pid, "TCS.NS", 60, 1200, datetime.date(2024, 5, 1)),
+        _dividend_event("TCS.NS", 5, datetime.date(2024, 6, 1)),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    assert report["dividends"]["2024-25"] == Decimal("200")
+
+
+def test_auto_dividend_not_double_counted_with_manual_row(db_session):
+    """If the user also entered a manual dividend for the same ticker+date, the auto
+    event is skipped (manual wins) — no double counting."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "WIPRO.NS", 100, 500, datetime.date(2022, 1, 1)),
+        _div(pid, "WIPRO.NS", 100, "6.00", datetime.date(2024, 6, 1)),   # manual Rs.600
+        _dividend_event("WIPRO.NS", 6, datetime.date(2024, 6, 1)),        # auto, same day
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    assert report["dividends"]["2024-25"] == Decimal("600.00")
+
+
+# ----------------------------------------------------- mutual fund tax (all types)
+
+def test_debt_mf_post_2023_taxed_at_slab(db_session):
+    """Debt fund acquired on/after 01-Apr-2023 (Sec 50AA): gain always slab-taxed,
+    regardless of holding period. Reported, not rupee-taxed. Gain 5000."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INF123D01010", 100, 100, datetime.date(2024, 1, 1), asset_class="DEBT_MF"),
+        _sell(pid, "INF123D01010", 100, 150, datetime.date(2024, 9, 1), asset_class="DEBT_MF"),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    fy = _fy(report, "2024-25")
+    assert fy["slab_taxable_gain"] == Decimal("5000.00")
+    assert fy["total_tax"] == Decimal("0.00")
+    assert report["total_tax_payable"] == Decimal("0.00")
+    assert report["slab_taxable_gain"] == Decimal("5000.00")
+
+
+def test_debt_mf_pre_2023_long_term_12_5_no_exemption(db_session):
+    """Debt fund acquired before 01-Apr-2023, held > 36 months -> LTCG @12.5%, NO
+    Rs.1.25L exemption (that is equity-only). Gain 200000 -> tax 25000."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INF123D01010", 100, 1000, datetime.date(2020, 1, 1), asset_class="DEBT_MF"),
+        _sell(pid, "INF123D01010", 100, 3000, datetime.date(2024, 9, 1), asset_class="DEBT_MF"),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    fy = _fy(report, "2024-25")
+    assert fy["noneq_ltcg_gain"] == Decimal("200000.00")
+    assert fy["noneq_ltcg_tax"] == Decimal("25000.00")
+    assert report["total_tax_payable"] == Decimal("25000.00")
+
+
+def test_hybrid_mf_over_24_months_is_ltcg(db_session):
+    """Hybrid/other fund acquired >= 01-Apr-2023, held > 24 months -> LTCG @12.5%.
+    Gain 100000 -> tax 12500."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INF456H01010", 100, 1000, datetime.date(2023, 5, 1), asset_class="HYBRID_MF"),
+        _sell(pid, "INF456H01010", 100, 2000, datetime.date(2025, 6, 1), asset_class="HYBRID_MF"),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    fy = _fy(report, "2025-26")
+    assert fy["noneq_ltcg_tax"] == Decimal("12500.00")
+
+
+def test_hybrid_mf_under_24_months_is_slab(db_session):
+    """Hybrid fund held < 24 months -> slab (reported, no rupee tax)."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INF456H01010", 100, 1000, datetime.date(2024, 1, 1), asset_class="HYBRID_MF"),
+        _sell(pid, "INF456H01010", 100, 1500, datetime.date(2025, 1, 1), asset_class="HYBRID_MF"),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    fy = _fy(report, "2024-25")
+    assert fy["slab_taxable_gain"] == Decimal("50000.00")
+    assert fy["total_tax"] == Decimal("0.00")
+
+
+def test_equity_mf_taxed_like_equity(db_session):
+    """Equity-oriented MF uses Sec 112A incl. the Rs.1.25L exemption (same as stocks).
+    Gain 200000 -> taxable 75000 @12.5% = 9375."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INF789E01010", 100, 1000, datetime.date(2022, 1, 1), asset_class="EQUITY_MF"),
+        _sell(pid, "INF789E01010", 100, 3000, datetime.date(2024, 8, 1), asset_class="EQUITY_MF"),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    assert report["total_tax_payable"] == Decimal("9375.00")
+    assert report["slab_taxable_gain"] == Decimal("0.00")
+
+
+def test_fund_classifier():
+    from engine.ingestion.fund_classifier import (
+        classify_asset_class, classify_fund_type, is_mutual_fund,
+    )
+    assert is_mutual_fund("INF204K01XYZ") is True
+    assert is_mutual_fund("INE002A01018") is False
+    assert is_mutual_fund("TCS.NS") is False
+
+    assert classify_asset_class("TCS.NS") == "EQUITY"
+    assert classify_asset_class("INE002A01018") == "EQUITY"
+    assert classify_fund_type(scheme_name="HDFC Liquid Fund") == "DEBT_MF"
+    assert classify_fund_type(scheme_name="ICICI Aggressive Hybrid Fund") == "HYBRID_MF"
+    assert classify_fund_type(scheme_name="Nippon Gold Savings FoF") == "OTHER_MF"
+    assert classify_fund_type(scheme_name="Axis Large Cap Fund") == "EQUITY_MF"
+    assert classify_fund_type(scheme_category="Equity Scheme", scheme_name="Whatever") == "EQUITY_MF"
+    assert classify_fund_type() == "EQUITY_MF"  # unknown defaults to equity
 
 
 def test_partial_sell_keeps_remaining_holdings(db_session):

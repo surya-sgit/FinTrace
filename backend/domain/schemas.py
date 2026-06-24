@@ -68,6 +68,7 @@ class TransactionCreate(BaseModel):
     quantity: Decimal = Field(..., gt=0, description="Must be greater than 0")
     price_per_unit: Decimal = Field(..., ge=0, description="Must be 0 or greater")
     brokerage_fees: Decimal = Field(default=Decimal('0.00'), ge=0)
+    asset_class: str = Field(default="EQUITY", description="Tax routing class: EQUITY | EQUITY_MF | DEBT_MF | HYBRID_MF | OTHER_MF")
     execution_date: date
     settlement_date: Optional[date] = None
 
@@ -121,7 +122,10 @@ class FinancialYearTax(BaseModel):
     ltcg_exemption_applied: Decimal = Field(..., description="Sec 112A annual exemption used this FY.")
     stcg_tax: Decimal = Field(..., description="Tax on STCG (Sec 111A).")
     ltcg_tax: Decimal = Field(..., description="Tax on LTCG (Sec 112A).")
-    total_tax: Decimal = Field(..., description="Total capital-gains tax for the FY.")
+    noneq_ltcg_gain: Decimal = Field(default=Decimal("0.00"), description="Non-equity (debt/hybrid) LTCG taxable @12.5%.")
+    noneq_ltcg_tax: Decimal = Field(default=Decimal("0.00"), description="Tax on non-equity LTCG @12.5%.")
+    slab_taxable_gain: Decimal = Field(default=Decimal("0.00"), description="Non-equity gain taxed at the investor's slab (reported, not rupee-computed).")
+    total_tax: Decimal = Field(..., description="Total capital-gains tax for the FY (excludes slab-rate gains).")
     dividend_income: Decimal = Field(default=Decimal("0.00"), description="Dividends received (taxable at slab).")
     stcg_loss_carried_forward: Decimal = Field(default=Decimal("0.00"), description="Unabsorbed ST loss carried forward.")
     ltcg_loss_carried_forward: Decimal = Field(default=Decimal("0.00"), description="Unabsorbed LT loss carried forward.")
@@ -129,6 +133,7 @@ class FinancialYearTax(BaseModel):
 
 class TaxLotDetail(BaseModel):
     ticker: str
+    asset_class: str = Field(default="EQUITY", description="EQUITY | EQUITY_MF | DEBT_MF | HYBRID_MF | OTHER_MF")
     buy_date: date
     sell_date: date
     quantity: Decimal
@@ -147,7 +152,8 @@ class TaxReportResponse(BaseModel):
     current_holdings: Dict[str, Decimal] = Field(..., description="Map of tickers and their remaining unsold quantities")
     # File-ready detail.
     financial_years: List[FinancialYearTax] = Field(default=[], description="Per-FY tax computation with set-off, exemption and carry-forward.")
-    total_tax_payable: Decimal = Field(default=Decimal("0.00"), description="Total capital-gains tax across all financial years.")
+    total_tax_payable: Decimal = Field(default=Decimal("0.00"), description="Total capital-gains tax across all financial years (excludes slab-rate gains).")
+    slab_taxable_gain: Decimal = Field(default=Decimal("0.00"), description="Total non-equity gain taxed at the investor's slab (reported, apply your slab rate).")
     lots: List[TaxLotDetail] = Field(default=[], description="Lot-level realized gain rows (FIFO matched).")
 
     class Config:

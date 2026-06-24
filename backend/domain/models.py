@@ -52,6 +52,9 @@ class TransactionLedger(Base):
     price_per_unit = Column(Numeric(18, 4), nullable=False)
     brokerage_fees = Column(Numeric(10, 2), default=0.00)
 
+    # Tax routing class: EQUITY (stocks/equity funds) | EQUITY_MF | DEBT_MF | HYBRID_MF | OTHER_MF
+    asset_class = Column(String(16), nullable=False, server_default="EQUITY", default="EQUITY")
+
     execution_date = Column(Date, nullable=False)   # For FIFO tracking
     settlement_date = Column(Date, nullable=False)  # For corporate action mapping
 
@@ -199,6 +202,9 @@ class TransactionLedger(Base):
     quantity = Column(Numeric(18, 4), nullable=False)
     price_per_unit = Column(Numeric(18, 4), nullable=False)
     brokerage_fees = Column(Numeric(10, 2), default=0.00)
+
+    # Tax routing class: EQUITY (stocks/equity funds) | EQUITY_MF | DEBT_MF | HYBRID_MF | OTHER_MF
+    asset_class = Column(String(16), nullable=False, server_default="EQUITY", default="EQUITY")
 
     execution_date = Column(Date, nullable=False)   # For FIFO tracking
     settlement_date = Column(Date, nullable=False)  # For corporate action mapping

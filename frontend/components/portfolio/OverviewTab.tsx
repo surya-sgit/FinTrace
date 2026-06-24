@@ -46,6 +46,11 @@ export function OverviewTab({
         ? Object.entries(taxReport.current_holdings).map(([name, value]) => ({ name, value: Number(value) })).filter(item => item.value > 0)
         : [];
 
+    // Show debt/hybrid mutual-fund tax columns only when the user actually holds them.
+    const hasNonEquity = taxReport?.financial_years?.some(
+        (fy) => fy.noneq_ltcg_tax > 0 || fy.slab_taxable_gain > 0
+    ) ?? false;
+
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             {/* Full Width Warning Banner for Synthetic Cash */}
@@ -306,6 +311,8 @@ export function OverviewTab({
                                     <th className="py-2 px-4 font-medium text-right">112A Exempt.</th>
                                     <th className="py-2 px-4 font-medium text-right">STCG Tax</th>
                                     <th className="py-2 px-4 font-medium text-right">LTCG Tax</th>
+                                    {hasNonEquity && <th className="py-2 px-4 font-medium text-right">Debt/Hybrid LTCG Tax</th>}
+                                    {hasNonEquity && <th className="py-2 px-4 font-medium text-right">Slab-taxable</th>}
                                     <th className="py-2 px-4 font-medium text-right">Dividends</th>
                                     <th className="py-2 pl-4 font-medium text-right">Total Tax</th>
                                 </tr>
@@ -319,6 +326,8 @@ export function OverviewTab({
                                         <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(fy.ltcg_exemption_applied)}</td>
                                         <td className="py-2 px-4 text-right text-gray-900">{formatCurrency(fy.stcg_tax)}</td>
                                         <td className="py-2 px-4 text-right text-gray-900">{formatCurrency(fy.ltcg_tax)}</td>
+                                        {hasNonEquity && <td className="py-2 px-4 text-right text-gray-900">{formatCurrency(fy.noneq_ltcg_tax)}</td>}
+                                        {hasNonEquity && <td className="py-2 px-4 text-right text-amber-700">{formatCurrency(fy.slab_taxable_gain)}</td>}
                                         <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(fy.dividend_income)}</td>
                                         <td className="py-2 pl-4 text-right font-semibold text-gray-900">{formatCurrency(fy.total_tax)}</td>
                                     </tr>
@@ -326,7 +335,7 @@ export function OverviewTab({
                             </tbody>
                             <tfoot>
                                 <tr className="border-t-2 border-gray-200">
-                                    <td className="py-2 pr-4 font-semibold text-gray-900" colSpan={7}>Total Tax Payable</td>
+                                    <td className="py-2 pr-4 font-semibold text-gray-900" colSpan={hasNonEquity ? 9 : 7}>Total Tax Payable</td>
                                     <td className="py-2 pl-4 text-right font-bold text-blue-700">
                                         {formatCurrency(taxReport.total_tax_payable ?? 0)}
                                     </td>
@@ -334,7 +343,12 @@ export function OverviewTab({
                             </tfoot>
                         </table>
                     </div>
-                    <p className="mt-3 text-xs text-gray-400">
+                    {hasNonEquity && (taxReport.slab_taxable_gain ?? 0) > 0 && (
+                        <p className="mt-3 text-xs text-amber-700">
+                            Slab-taxable gain of {formatCurrency(taxReport.slab_taxable_gain ?? 0)} (debt/hybrid funds, Sec 50AA) is taxed at your income-tax slab — apply your own rate; it is not included in the Total Tax above.
+                        </p>
+                    )}
+                    <p className="mt-2 text-xs text-gray-400">
                         Dividends are shown for reference only — they are taxable at your income-tax slab and are not included in the capital-gains tax total.
                     </p>
                 </div>

@@ -50,9 +50,11 @@ def generate_tax_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db), 
         current_holdings=report_data["current_holdings"],
         financial_years=report_data["financial_years"],
         total_tax_payable=report_data["total_tax_payable"],
+        slab_taxable_gain=report_data.get("slab_taxable_gain", 0),
         lots=[
             schemas.TaxLotDetail(
                 ticker=e["ticker"],
+                asset_class=e.get("asset_class", "EQUITY"),
                 buy_date=e["buy_date"],
                 sell_date=e["sell_date"],
                 quantity=e["quantity"],

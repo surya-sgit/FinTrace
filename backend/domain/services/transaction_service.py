@@ -51,13 +51,41 @@ class TransactionService:
         if not transaction_objs:
             raise ValueError("No valid transaction rows found in the uploaded file.")
 
-        # Sync corporate actions BEFORE validating the ledger
+        from engine.ingestion.fund_classifier import is_mutual_fund, classify_fund_type
+
         unique_tickers = {t.ticker.upper() for t in transaction_objs if t.ticker and t.ticker.strip()}
-        for ticker in unique_tickers:
+        mf_tickers = {t for t in unique_tickers if is_mutual_fund(t)}
+
+        # AMFI gives both the scheme CATEGORY (for tax classification) and the NAV (for
+        # pricing). Load the master once if the upload contains any mutual funds.
+        amfi = None
+        asset_class_by_ticker = {t: "EQUITY" for t in unique_tickers}
+        if mf_tickers:
+            from engine.market_data.amfi_service import AMFIService
+            amfi = AMFIService(self.db)
+            for t in mf_tickers:
+                try:
+                    scheme = amfi.get_scheme(t)
+                    asset_class_by_ticker[t] = classify_fund_type(
+                        scheme.get("category") if scheme else None,
+                        scheme.get("scheme_name") if scheme else None,
+                    )
+                except Exception as e:
+                    logger.error(f"Error classifying MF {t}: {str(e)}")
+                    asset_class_by_ticker[t] = "EQUITY_MF"
+
+        # Sync corporate actions (equities only — MFs have no yfinance splits/dividends).
+        for ticker in unique_tickers - mf_tickers:
             try:
                 self.corp_service.sync_splits_for_ticker(ticker)
             except Exception as e:
                 logger.error(f"Error syncing splits for {ticker}: {str(e)}")
+            try:
+                # Auto-derive dividends from public corporate-action data so users
+                # don't have to enter them manually (and can't get them wrong).
+                self.corp_service.sync_dividends_for_ticker(ticker)
+            except Exception as e:
+                logger.error(f"Error syncing dividends for {ticker}: {str(e)}")
 
         # --- BEGIN STATEFUL LEDGER INTEGRITY VALIDATION ---
         from engine.ingestion.ledger_validator import LedgerValidator
@@ -78,6 +106,12 @@ class TransactionService:
         for txn in transaction_objs:
             row_dict = txn.model_dump()
             checksum = self._generate_row_checksum(str(portfolio.id), row_dict)
+            # Respect an explicit class from the file; otherwise use the AMFI-derived
+            # classification (mutual funds) or EQUITY (stocks).
+            asset_class = (
+                txn.asset_class if txn.asset_class != "EQUITY"
+                else asset_class_by_ticker.get(txn.ticker.upper(), "EQUITY")
+            )
             db_txn = models.TransactionLedger(
                 portfolio_id=portfolio.id,
                 ticker=txn.ticker.upper(),
@@ -85,6 +119,7 @@ class TransactionService:
                 quantity=txn.quantity,
                 price_per_unit=txn.price_per_unit,
                 brokerage_fees=txn.brokerage_fees,
+                asset_class=asset_class,
                 execution_date=txn.execution_date,
                 settlement_date=txn.settlement_date,
                 checksum=checksum,
@@ -110,15 +145,23 @@ class TransactionService:
         earliest_date = min(t.execution_date for t in transaction_objs)
         today = date.today()
 
-        for ticker in unique_tickers:
+        for ticker in unique_tickers - mf_tickers:
             try:
                 self.market_service.fetch_and_cache_metadata(ticker)
             except Exception as e:
                 logger.error(f"Error fetching metadata for {ticker}: {str(e)}")
-            
+
             try:
                 self.market_service.fetch_historical_prices(ticker, earliest_date, today)
             except Exception as e:
                 logger.error(f"Error fetching historical prices for {ticker}: {str(e)}")
+
+        # Mutual funds: price from AMFI NAV (yfinance doesn't cover Indian MFs).
+        for ticker in mf_tickers:
+            try:
+                if amfi is not None:
+                    amfi.fetch_and_cache_nav(ticker)
+            except Exception as e:
+                logger.error(f"Error fetching AMFI NAV for {ticker}: {str(e)}")
 
         return len(db_transactions)

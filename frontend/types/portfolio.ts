@@ -26,6 +26,9 @@ export interface FinancialYearTax {
     ltcg_exemption_applied: number;
     stcg_tax: number;
     ltcg_tax: number;
+    noneq_ltcg_gain: number;
+    noneq_ltcg_tax: number;
+    slab_taxable_gain: number;
     total_tax: number;
     dividend_income: number;
     stcg_loss_carried_forward: number;
@@ -34,6 +37,7 @@ export interface FinancialYearTax {
 
 export interface TaxLotDetail {
     ticker: string;
+    asset_class?: string;
     buy_date: string;
     sell_date: string;
     quantity: number;
@@ -50,6 +54,7 @@ export interface TaxReport {
     current_holdings: Record<string, number>;
     financial_years?: FinancialYearTax[];
     total_tax_payable?: number;
+    slab_taxable_gain?: number;
     lots?: TaxLotDetail[];
 }
 
