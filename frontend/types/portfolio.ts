@@ -10,6 +10,26 @@ export interface ValuationPoint {
     valuation: number;
 }
 
+export interface ConsolidatedPortfolioSummary {
+    portfolio_id: string;
+    name: string;
+    invested: number;
+    current_value: number;
+    xirr_percentage: number;
+}
+
+export interface ConsolidatedView {
+    total_net_worth: number;
+    total_invested: number;
+    total_current_value: number;
+    unrealized_pl: number;
+    blended_xirr: number;
+    equity_value: number;
+    mutual_fund_value: number;
+    portfolio_count: number;
+    portfolios: ConsolidatedPortfolioSummary[];
+}
+
 export interface XIRRReport {
     xirr_percentage: number;
     total_invested_capital: number;

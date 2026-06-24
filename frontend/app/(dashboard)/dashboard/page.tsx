@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Briefcase, ArrowRight, Plus, LogOut, Loader2, X } from 'lucide-react';
+import { Briefcase, ArrowRight, Plus, LogOut, Loader2, X, Wallet, TrendingUp, PieChart } from 'lucide-react';
 import api from '@/lib/api';
+import { ConsolidatedView } from '@/types/portfolio';
 
 interface Portfolio {
     id: string;
@@ -15,6 +16,7 @@ interface Portfolio {
 export default function DashboardPage() {
     const router = useRouter();
     const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+    const [consolidated, setConsolidated] = useState<ConsolidatedView | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -31,17 +33,24 @@ export default function DashboardPage() {
     const fetchPortfolios = async () => {
         try {
             const response = await api.get('/portfolios/');
-
-            // ADD THIS LINE:
-            console.log("Raw Backend Data:", response.data);
-
             setPortfolios(response.data);
+
+            // Consolidated net-worth view (best-effort; don't block the list on it).
+            try {
+                const consRes = await api.get('/portfolios/consolidated');
+                setConsolidated(consRes.data);
+            } catch {
+                setConsolidated(null);
+            }
         } catch (err: any) {
             setError('Failed to load your financial data.');
         } finally {
             setIsLoading(false);
         }
     };
+
+    const formatCurrency = (amount: number) =>
+        `₹${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
     // The new function to handle form submission
     const handleCreatePortfolio = async (e: React.FormEvent) => {
@@ -115,6 +124,60 @@ export default function DashboardPage() {
                 {error && (
                     <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-md border border-red-200">
                         {error}
+                    </div>
+                )}
+
+                {consolidated && consolidated.portfolio_count > 0 && (
+                    <div className="mb-8 bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+                        <div className="flex items-center mb-4">
+                            <Wallet className="w-5 h-5 mr-2 text-blue-600" />
+                            <h3 className="text-lg font-semibold text-gray-900">Total Net Worth</h3>
+                            <span className="ml-2 text-xs text-gray-400">across {consolidated.portfolio_count} portfolios</span>
+                        </div>
+                        <p className="text-3xl font-bold text-gray-900 mb-6">{formatCurrency(consolidated.total_net_worth)}</p>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                            <div>
+                                <p className="text-xs text-gray-500">Invested</p>
+                                <p className="text-lg font-semibold text-gray-900">{formatCurrency(consolidated.total_invested)}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-gray-500">Unrealized P&amp;L</p>
+                                <p className={`text-lg font-semibold ${consolidated.unrealized_pl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {consolidated.unrealized_pl < 0 ? '-' : ''}{formatCurrency(consolidated.unrealized_pl)}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-gray-500 flex items-center"><TrendingUp className="w-3 h-3 mr-1" /> Blended XIRR</p>
+                                <p className={`text-lg font-semibold ${consolidated.blended_xirr >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {consolidated.blended_xirr.toFixed(2)}%
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-gray-500 flex items-center"><PieChart className="w-3 h-3 mr-1" /> Current Value</p>
+                                <p className="text-lg font-semibold text-gray-900">{formatCurrency(consolidated.total_current_value)}</p>
+                            </div>
+                        </div>
+
+                        {/* Equity vs Mutual Fund split */}
+                        {(consolidated.equity_value + consolidated.mutual_fund_value) > 0 && (
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                    <span>Equity {formatCurrency(consolidated.equity_value)}</span>
+                                    <span>Mutual Funds {formatCurrency(consolidated.mutual_fund_value)}</span>
+                                </div>
+                                <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100">
+                                    <div
+                                        className="bg-blue-600"
+                                        style={{ width: `${(consolidated.equity_value / (consolidated.equity_value + consolidated.mutual_fund_value)) * 100}%` }}
+                                    />
+                                    <div
+                                        className="bg-amber-500"
+                                        style={{ width: `${(consolidated.mutual_fund_value / (consolidated.equity_value + consolidated.mutual_fund_value)) * 100}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

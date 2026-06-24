@@ -47,6 +47,19 @@ def get_portfolios(db: Session = Depends(get_db), current_user: models.User = De
     return portfolios
 
 @router.get(
+    "/consolidated",
+    response_model=schemas.ConsolidatedResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Consolidated net-worth across all portfolios",
+    description="Aggregates every portfolio the user owns into a single net-worth view "
+                "with a capital-weighted blended XIRR and an equity vs mutual-fund split.",
+)
+def get_consolidated(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    from engine.math_core.consolidation_engine import ConsolidationEngine
+    return ConsolidationEngine(db, current_user.id).aggregate()
+
+
+@router.get(
     "/{portfolio_id}",
     response_model=schemas.PortfolioResponse,
     status_code=status.HTTP_200_OK,

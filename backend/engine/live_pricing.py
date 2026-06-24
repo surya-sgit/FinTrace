@@ -77,16 +77,31 @@ async def scheduled_market_data_update():
     from db.session import SessionLocal
     from domain.models import TransactionLedger
     
+    from engine.ingestion.fund_classifier import is_mutual_fund
+
     logger.info("Starting scheduled market data update...")
     db = SessionLocal()
     try:
         # Get all distinct tickers from the ledger
         tickers = db.query(TransactionLedger.ticker).distinct().all()
         ticker_list = [t[0] for t in tickers]
-        
-        for ticker in ticker_list:
+
+        equities = [t for t in ticker_list if not is_mutual_fund(t)]
+        mf_isins = [t for t in ticker_list if is_mutual_fund(t)]
+
+        for ticker in equities:
             await update_ticker_price(ticker, db)
-            
+
+        # Mutual funds: refresh NAVs from AMFI (master loaded once).
+        if mf_isins:
+            from engine.market_data.amfi_service import AMFIService
+            amfi = AMFIService(db)
+            for isin in mf_isins:
+                try:
+                    amfi.fetch_and_cache_nav(isin)
+                except Exception as e:
+                    logger.error(f"AMFI NAV update failed for {isin}: {str(e)}")
+
         logger.info(f"Scheduled update completed for {len(ticker_list)} distinct tickers.")
     except Exception as e:
         logger.error(f"Scheduled market data update failed: {str(e)}")

@@ -160,6 +160,26 @@ class TaxReportResponse(BaseModel):
         from_attributes = True
 
 
+class ConsolidatedPortfolioSummary(BaseModel):
+    portfolio_id: str
+    name: str
+    invested: float
+    current_value: float
+    xirr_percentage: float
+
+
+class ConsolidatedResponse(BaseModel):
+    total_net_worth: float = Field(..., description="Total current value across all portfolios.")
+    total_invested: float
+    total_current_value: float
+    unrealized_pl: float
+    blended_xirr: float = Field(..., description="Capital-weighted average XIRR across portfolios.")
+    equity_value: float = Field(..., description="Current value held in equities / equity funds.")
+    mutual_fund_value: float = Field(..., description="Current value held in non-equity mutual funds.")
+    portfolio_count: int
+    portfolios: List[ConsolidatedPortfolioSummary] = Field(default=[])
+
+
 class HistoricalValuationPoint(BaseModel):
     date: str
     valuation: float
