@@ -17,10 +17,40 @@ export interface XIRRReport {
     valuation_history?: ValuationPoint[];
 }
 
+export interface FinancialYearTax {
+    financial_year: string;
+    gross_stcg: number;
+    gross_ltcg: number;
+    taxable_stcg: number;
+    taxable_ltcg: number;
+    ltcg_exemption_applied: number;
+    stcg_tax: number;
+    ltcg_tax: number;
+    total_tax: number;
+    dividend_income: number;
+    stcg_loss_carried_forward: number;
+    ltcg_loss_carried_forward: number;
+}
+
+export interface TaxLotDetail {
+    ticker: string;
+    buy_date: string;
+    sell_date: string;
+    quantity: number;
+    cost_basis: number;
+    proceeds: number;
+    gain: number;
+    is_long_term: boolean;
+    grandfathered: boolean;
+}
+
 export interface TaxReport {
     realized_stcg: number;
     realized_ltcg: number;
     current_holdings: Record<string, number>;
+    financial_years?: FinancialYearTax[];
+    total_tax_payable?: number;
+    lots?: TaxLotDetail[];
 }
 
 export interface DragRow {

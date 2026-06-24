@@ -40,26 +40,30 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
         handleFileSelect, processUpload
     } = useUpload(portfolio_id, refetch);
 
-    const handleDownloadTaxReport = async () => {
+    const downloadTaxReport = async (format: 'pdf' | 'csv') => {
         setIsDownloading(true);
         setDownloadError('');
         try {
-            const response = await api.get(`/portfolios/${portfolio_id}/tax-report/pdf`, {
+            const response = await api.get(`/portfolios/${portfolio_id}/tax-report/${format}`, {
                 responseType: 'blob',
             });
             const url = window.URL.createObjectURL(new Blob([response.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', `FinTrace_Tax_Report_${portfolio_id}.pdf`);
+            link.setAttribute('download', `FinTrace_Tax_Report_${portfolio_id}.${format}`);
             document.body.appendChild(link);
             link.click();
             link.remove();
-        } catch (err: any) {
-            setDownloadError('Failed to download tax report.');
+            window.URL.revokeObjectURL(url);
+        } catch {
+            setDownloadError(`Failed to download ${format.toUpperCase()} tax report.`);
         } finally {
             setIsDownloading(false);
         }
     };
+
+    const handleDownloadTaxReport = () => downloadTaxReport('pdf');
+    const handleDownloadTaxCsv = () => downloadTaxReport('csv');
 
     if (isLoading) {
         return (
@@ -168,6 +172,7 @@ export default function PortfolioDetailPage({ params }: { params: Promise<{ port
                         handleFileSelect={handleFileSelect}
                         processUpload={processUpload}
                         handleDownloadTaxReport={handleDownloadTaxReport}
+                        handleDownloadTaxCsv={handleDownloadTaxCsv}
                         isDownloading={isDownloading}
                     />
                 )}

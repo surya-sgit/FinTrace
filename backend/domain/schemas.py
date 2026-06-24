@@ -98,11 +98,43 @@ class TransactionResponse(TransactionCreate):
 # ---------------------------------------------------------
 # Report Validation Schemas
 # ---------------------------------------------------------
+class FinancialYearTax(BaseModel):
+    financial_year: str = Field(..., description="Indian FY label, e.g. '2024-25'.")
+    gross_stcg: Decimal = Field(..., description="Net short-term capital gain before set-off.")
+    gross_ltcg: Decimal = Field(..., description="Net long-term capital gain before set-off.")
+    taxable_stcg: Decimal = Field(..., description="STCG remaining after loss set-off.")
+    taxable_ltcg: Decimal = Field(..., description="LTCG remaining after set-off and exemption.")
+    ltcg_exemption_applied: Decimal = Field(..., description="Sec 112A annual exemption used this FY.")
+    stcg_tax: Decimal = Field(..., description="Tax on STCG (Sec 111A).")
+    ltcg_tax: Decimal = Field(..., description="Tax on LTCG (Sec 112A).")
+    total_tax: Decimal = Field(..., description="Total capital-gains tax for the FY.")
+    dividend_income: Decimal = Field(default=Decimal("0.00"), description="Dividends received (taxable at slab).")
+    stcg_loss_carried_forward: Decimal = Field(default=Decimal("0.00"), description="Unabsorbed ST loss carried forward.")
+    ltcg_loss_carried_forward: Decimal = Field(default=Decimal("0.00"), description="Unabsorbed LT loss carried forward.")
+
+
+class TaxLotDetail(BaseModel):
+    ticker: str
+    buy_date: date
+    sell_date: date
+    quantity: Decimal
+    cost_basis: Decimal = Field(..., description="Cost of acquisition incl. brokerage (and grandfathered FMV if applicable).")
+    proceeds: Decimal = Field(..., description="Sale value net of brokerage.")
+    gain: Decimal
+    is_long_term: bool
+    grandfathered: bool = Field(default=False, description="Whether Sec 112A FMV step-up was applied.")
+
+
 class TaxReportResponse(BaseModel):
     portfolio_id: uuid.UUID
-    realized_stcg: Decimal = Field(..., description="Total Short-Term Capital Gains (Held < 365 days)")
-    realized_ltcg: Decimal = Field(..., description="Total Long-Term Capital Gains (Held >= 365 days)")
+    # Backward-compatible aggregate fields (consumed by the existing dashboard).
+    realized_stcg: Decimal = Field(..., description="Net realized Short-Term Capital Gains (held <= 12 months).")
+    realized_ltcg: Decimal = Field(..., description="Net realized Long-Term Capital Gains (held > 12 months).")
     current_holdings: Dict[str, Decimal] = Field(..., description="Map of tickers and their remaining unsold quantities")
+    # File-ready detail.
+    financial_years: List[FinancialYearTax] = Field(default=[], description="Per-FY tax computation with set-off, exemption and carry-forward.")
+    total_tax_payable: Decimal = Field(default=Decimal("0.00"), description="Total capital-gains tax across all financial years.")
+    lots: List[TaxLotDetail] = Field(default=[], description="Lot-level realized gain rows (FIFO matched).")
 
     class Config:
         from_attributes = True

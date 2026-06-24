@@ -1,4 +1,4 @@
-import { UploadCloud, Download, Loader2, Activity, FileText, TrendingUp, PieChart as PieChartIcon } from 'lucide-react';
+import { UploadCloud, Download, Loader2, Activity, FileText, TrendingUp, PieChart as PieChartIcon, FileSpreadsheet, Landmark } from 'lucide-react';
 import { PieChart, Pie, Cell, Legend, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { Portfolio, XIRRReport, TaxReport, LongTermAttributionReport } from '@/types/portfolio';
 import { PerformanceChart } from './PerformanceChart';
@@ -17,6 +17,7 @@ interface OverviewTabProps {
     handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     processUpload: (file: File, password?: string) => void;
     handleDownloadTaxReport: () => void;
+    handleDownloadTaxCsv: () => void;
     isDownloading: boolean;
 }
 
@@ -26,7 +27,7 @@ export function OverviewTab({
     portfolio, xirrReport, taxReport, ltData,
     isUploading, uploadSuccess, uploadRowErrors, selectedFile,
     pdfPassword, setPdfPassword, handleFileSelect, processUpload,
-    handleDownloadTaxReport, isDownloading
+    handleDownloadTaxReport, handleDownloadTaxCsv, isDownloading
 }: OverviewTabProps) {
     const formatCurrency = (amount: number) => {
         const symbol = portfolio.tax_jurisdiction === 'IN' ? '₹' : '$';
@@ -172,33 +173,61 @@ export function OverviewTab({
                     <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
                         <FileText className="w-5 h-5 mr-2 text-blue-600" /> Tax Compliance
                     </h3>
+
+                    {/* Net Tax Payable headline */}
+                    <div className="mb-4 p-4 rounded-lg bg-blue-50 border border-blue-100">
+                        <p className="text-xs font-medium text-blue-700 uppercase tracking-wide flex items-center">
+                            <Landmark className="w-3.5 h-3.5 mr-1.5" /> Est. Capital Gains Tax Payable
+                        </p>
+                        <p className="text-2xl font-bold text-blue-900 mt-1">
+                            {taxReport?.total_tax_payable !== undefined
+                                ? formatCurrency(taxReport.total_tax_payable)
+                                : '--'}
+                        </p>
+                    </div>
+
                     <div className="mb-4 space-y-2">
                         <div className="flex justify-between">
-                            <span className="text-sm text-gray-500">STCG</span>
+                            <span className="text-sm text-gray-500">Realized STCG</span>
                             <span className={`text-sm font-medium ${taxReport ? getColorClass(taxReport.realized_stcg) : ''}`}>
                                 {taxReport ? formatCurrency(taxReport.realized_stcg) : '--'}
                             </span>
                         </div>
                         <div className="flex justify-between">
-                            <span className="text-sm text-gray-500">LTCG</span>
+                            <span className="text-sm text-gray-500">Realized LTCG</span>
                             <span className={`text-sm font-medium ${taxReport ? getColorClass(taxReport.realized_ltcg) : ''}`}>
                                 {taxReport ? formatCurrency(taxReport.realized_ltcg) : '--'}
                             </span>
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); handleDownloadTaxReport(); }}
-                        disabled={isDownloading || !taxReport}
-                        className="w-full flex items-center justify-center bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium disabled:opacity-70"
-                    >
-                        {isDownloading ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        ) : (
-                            <Download className="w-4 h-4 mr-2" />
-                        )}
-                        Download Tax Report
-                    </button>
+
+                    <div className="flex space-x-2">
+                        <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); handleDownloadTaxReport(); }}
+                            disabled={isDownloading || !taxReport}
+                            className="flex-1 flex items-center justify-center bg-blue-600 text-white py-2 px-3 rounded-md hover:bg-blue-700 transition-colors font-medium text-sm disabled:opacity-70"
+                        >
+                            {isDownloading ? (
+                                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                            ) : (
+                                <Download className="w-4 h-4 mr-1.5" />
+                            )}
+                            PDF
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); handleDownloadTaxCsv(); }}
+                            disabled={isDownloading || !taxReport}
+                            className="flex-1 flex items-center justify-center bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-md hover:bg-gray-50 transition-colors font-medium text-sm disabled:opacity-70"
+                        >
+                            <FileSpreadsheet className="w-4 h-4 mr-1.5" />
+                            CSV
+                        </button>
+                    </div>
+                    <p className="mt-3 text-[11px] leading-snug text-gray-400">
+                        Listed-equity (STT-paid) estimate under Sec 111A/112A incl. grandfathering &amp; ₹1.25L LTCG exemption. Verify with a tax professional before filing.
+                    </p>
                 </div>
             </div>
 
@@ -257,6 +286,56 @@ export function OverviewTab({
                     )}
                 </div>
             </div>
+
+            {/* Capital Gains by Financial Year */}
+            {taxReport?.financial_years && taxReport.financial_years.length > 0 && (
+                <div className="lg:col-span-3 bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
+                        <Landmark className="w-5 h-5 mr-2 text-blue-600" /> Capital Gains by Financial Year
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                            <thead>
+                                <tr className="text-left text-gray-500 border-b border-gray-200">
+                                    <th className="py-2 pr-4 font-medium">FY</th>
+                                    <th className="py-2 px-4 font-medium text-right">STCG</th>
+                                    <th className="py-2 px-4 font-medium text-right">LTCG</th>
+                                    <th className="py-2 px-4 font-medium text-right">112A Exempt.</th>
+                                    <th className="py-2 px-4 font-medium text-right">STCG Tax</th>
+                                    <th className="py-2 px-4 font-medium text-right">LTCG Tax</th>
+                                    <th className="py-2 px-4 font-medium text-right">Dividends</th>
+                                    <th className="py-2 pl-4 font-medium text-right">Total Tax</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {taxReport.financial_years.map((fy) => (
+                                    <tr key={fy.financial_year} className="border-b border-gray-100">
+                                        <td className="py-2 pr-4 font-medium text-gray-900">{fy.financial_year}</td>
+                                        <td className={`py-2 px-4 text-right ${getColorClass(fy.gross_stcg)}`}>{formatCurrency(fy.gross_stcg)}</td>
+                                        <td className={`py-2 px-4 text-right ${getColorClass(fy.gross_ltcg)}`}>{formatCurrency(fy.gross_ltcg)}</td>
+                                        <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(fy.ltcg_exemption_applied)}</td>
+                                        <td className="py-2 px-4 text-right text-gray-900">{formatCurrency(fy.stcg_tax)}</td>
+                                        <td className="py-2 px-4 text-right text-gray-900">{formatCurrency(fy.ltcg_tax)}</td>
+                                        <td className="py-2 px-4 text-right text-gray-600">{formatCurrency(fy.dividend_income)}</td>
+                                        <td className="py-2 pl-4 text-right font-semibold text-gray-900">{formatCurrency(fy.total_tax)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr className="border-t-2 border-gray-200">
+                                    <td className="py-2 pr-4 font-semibold text-gray-900" colSpan={7}>Total Tax Payable</td>
+                                    <td className="py-2 pl-4 text-right font-bold text-blue-700">
+                                        {formatCurrency(taxReport.total_tax_payable ?? 0)}
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <p className="mt-3 text-xs text-gray-400">
+                        Dividends are shown for reference only — they are taxable at your income-tax slab and are not included in the capital-gains tax total.
+                    </p>
+                </div>
+            )}
         </div>
     );
 }

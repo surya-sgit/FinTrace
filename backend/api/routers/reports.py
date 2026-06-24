@@ -8,9 +8,28 @@ from domain import models, schemas
 from engine.math_core.tax_engine import FIFOTaxEngine
 from engine.math_core.xirr_engine import XIRREngine
 from api.dependencies import get_current_user
-from engine.documents.pdf_generator import create_tax_pdf
+from engine.documents.pdf_generator import create_tax_pdf, create_tax_csv
 
 router = APIRouter()
+
+
+def _build_tax_report(portfolio_id, db, current_user):
+    """Shared: verify ownership and run the FIFO tax engine. Returns the report dict."""
+    portfolio = db.query(models.Portfolio).filter(
+        models.Portfolio.id == portfolio_id,
+        models.Portfolio.user_id == current_user.id,
+    ).first()
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
+
+    try:
+        engine = FIFOTaxEngine(db_session=db, portfolio_id=str(portfolio_id))
+        return engine.compute_tax_report()
+    except ValueError as e:
+        # Ledger integrity errors (e.g. selling unowned shares).
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Engine calculation failed.")
 
 @router.get(
     "/{portfolio_id}/tax-report",
@@ -22,27 +41,29 @@ router = APIRouter()
     """
 )
 def generate_tax_report(portfolio_id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # 1. Verify Portfolio
-    portfolio = db.query(models.Portfolio).filter(models.Portfolio.id == portfolio_id, models.Portfolio.user_id == current_user.id).first()
-    if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
+    report_data = _build_tax_report(portfolio_id, db, current_user)
 
-    # 2. Execute the Math Engine
-    try:
-        engine = FIFOTaxEngine(db_session=db, portfolio_id=str(portfolio_id))
-        report_data = engine.compute_realized_gains()
-    except ValueError as e:
-        # Catch any ledger corruption errors (e.g., selling unowned shares)
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Engine calculation failed.")
-
-    # 3. Return strictly typed Pydantic response
     return schemas.TaxReportResponse(
         portfolio_id=portfolio_id,
         realized_stcg=report_data["realized_stcg"],
         realized_ltcg=report_data["realized_ltcg"],
-        current_holdings=report_data["current_holdings"]
+        current_holdings=report_data["current_holdings"],
+        financial_years=report_data["financial_years"],
+        total_tax_payable=report_data["total_tax_payable"],
+        lots=[
+            schemas.TaxLotDetail(
+                ticker=e["ticker"],
+                buy_date=e["buy_date"],
+                sell_date=e["sell_date"],
+                quantity=e["quantity"],
+                cost_basis=e["cost_basis"],
+                proceeds=e["proceeds"],
+                gain=e["gain"],
+                is_long_term=e["is_long_term"],
+                grandfathered=e["grandfathered"],
+            )
+            for e in report_data["realized_events"]
+        ],
     )
 
 
@@ -99,12 +120,8 @@ def download_tax_report_pdf(
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found or access denied.")
 
-    # 2. Run the math engine to get the raw numbers
-    try:
-        engine = FIFOTaxEngine(db_session=db, portfolio_id=str(portfolio_id))
-        report_data = engine.compute_realized_gains()
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Engine calculation failed.")
+    # 2. Run the math engine to get the full report
+    report_data = _build_tax_report(portfolio_id, db, current_user)
 
     # 3. Generate the PDF buffer
     pdf_buffer = create_tax_pdf(report_data, current_user.email)
@@ -114,4 +131,23 @@ def download_tax_report_pdf(
         pdf_buffer,
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=FinTrace_Tax_Report_{portfolio_id}.pdf"}
+    )
+
+
+@router.get(
+    "/{portfolio_id}/tax-report/csv",
+    summary="Download CSV Tax Report",
+    description="Exports lot-level FIFO realized-gain rows as a CSV suitable for a CA / Schedule CG working.",
+)
+def download_tax_report_csv(
+    portfolio_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    report_data = _build_tax_report(portfolio_id, db, current_user)
+    csv_buffer = create_tax_csv(report_data)
+    return StreamingResponse(
+        csv_buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=FinTrace_Tax_Report_{portfolio_id}.csv"},
     )
