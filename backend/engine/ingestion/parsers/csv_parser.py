@@ -28,6 +28,9 @@ BROKER_SIGNATURES: Dict[str, set] = {
     "upstox": {"order date", "isin", "instrument", "filled qty", "average price"},
     "angelone": {"trade timestamp", "isin", "security name", "qty", "price"},
     "fintrace_template": {"ticker", "transaction_type", "quantity", "price_per_unit", "execution_date"},
+    # Groww mutual-fund order history export: Scheme Name / Transaction Type / Units /
+    # NAV / Amount / Date (no ISIN, no exchange — identified by scheme name).
+    "groww_mf": {"scheme name", "transaction type", "units", "nav", "amount", "date"},
 }
 
 # Mapping from generic internal field names to possible CSV column names per broker.
@@ -79,6 +82,14 @@ COLUMN_MAP: Dict[str, Dict[str, str]] = {
         "transaction_type": "transaction_type",
         "settlement_date": "settlement_date",
     },
+    "groww_mf": {
+        "execution_date": "date",
+        "ticker": "scheme name",      # fund name; resolved/classified downstream
+        "quantity": "units",
+        "price_per_unit": "nav",
+        "total_value": "amount",
+        "transaction_type": "transaction type",
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -123,6 +134,28 @@ def _parse_date(value: str) -> datetime.date:
         return dparser.parse(value.strip(), dayfirst=True).date()
     except Exception as exc:
         raise ValueError(f"Unparseable date: {value}") from exc
+
+
+def _normalize_txn_type(value: str) -> str:
+    """Map a broker's transaction-type label to BUY / SELL / DIVIDEND.
+
+    Handles mutual-fund vocabulary (PURCHASE/REDEEM/SWITCH/IDCW) that the old
+    first-letter heuristic mis-classified (e.g. PURCHASE and REDEEM both fell through
+    to DIVIDEND).
+    """
+    v = value.strip().upper()
+    if v in {"BUY", "SELL", "DIVIDEND"}:
+        return v
+    if any(t in v for t in ("DIVIDEND", "IDCW", "PAYOUT")):
+        return "DIVIDEND"
+    if any(t in v for t in ("REDEEM", "REDEMPTION", "SELL", "SWITCH OUT", "SWITCH-OUT", "WITHDRAW")):
+        return "SELL"
+    if any(t in v for t in ("PURCHASE", "BUY", "SIP", "INVEST", "SWITCH IN", "SWITCH-IN")):
+        return "BUY"
+    # Conservative fallback (prefer BUY over fabricating a dividend).
+    if v.startswith("S"):
+        return "SELL"
+    return "BUY"
 
 
 def _coerce_decimal(value: str) -> Decimal:
@@ -199,17 +232,7 @@ class BrokerCSVParser(BaseParser):
                     elif field == "brokerage_fees":
                         data[field] = _coerce_decimal(value) if value.strip() else Decimal("0.00")
                     elif field == "transaction_type":
-                        # Normalise BUY/SELL strings – allow various cases
-                        standardized = value.strip().upper()
-                        if standardized not in {"BUY", "SELL", "DIVIDEND"}:
-                            # Try common abbreviations
-                            if standardized.startswith("B"):
-                                standardized = "BUY"
-                            elif standardized.startswith("S"):
-                                standardized = "SELL"
-                            else:
-                                standardized = "DIVIDEND"
-                        data[field] = standardized
+                        data[field] = _normalize_txn_type(value)
                     else:
                         data[field] = value.strip()
                 # Compute price_per_unit if total_value is provided instead
@@ -271,6 +294,12 @@ class BrokerCSVParser(BaseParser):
                 # Default missing optional fields
                 data.setdefault("brokerage_fees", Decimal("0.00"))
                 data.setdefault("settlement_date", None)
+
+                # Mutual-fund export: classify by scheme name so the row is tax-routed
+                # correctly even before AMFI category resolution.
+                if broker_key == "groww_mf":
+                    from engine.ingestion.fund_classifier import classify_fund_type
+                    data["asset_class"] = classify_fund_type(scheme_name=str(data.get("ticker", "")))
 
                 # Build Pydantic model – this validates dates, decimals, etc.
                 transaction = schemas.TransactionCreate(**data)  # type: ignore[arg-type]

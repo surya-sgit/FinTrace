@@ -44,7 +44,7 @@ class TransactionLedger(Base):
     """
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     portfolio_id = Column(UUID(as_uuid=True), ForeignKey("portfolios.id"), nullable=False)
-    ticker = Column(String(32), index=True, nullable=False) # e.g., 'RELIANCE.NS'
+    ticker = Column(String(128), index=True, nullable=False) # ticker, ISIN, or MF scheme name
     transaction_type = Column(String(16), nullable=False)  # BUY, SELL, DIVIDEND
 
     # Precision numeric scales to prevent binary floating-point issues
@@ -195,7 +195,7 @@ class TransactionLedger(Base):
     """
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     portfolio_id = Column(UUID(as_uuid=True), ForeignKey("portfolios.id"), nullable=False)
-    ticker = Column(String(32), index=True, nullable=False) # e.g., 'RELIANCE.NS'
+    ticker = Column(String(128), index=True, nullable=False) # ticker, ISIN, or MF scheme name
     transaction_type = Column(String(16), nullable=False)  # BUY, SELL, DIVIDEND
 
     # Precision numeric scales to prevent binary floating-point issues

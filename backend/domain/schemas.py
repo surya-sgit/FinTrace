@@ -63,7 +63,7 @@ class PortfolioResponse(BaseModel):
 # Transaction Validation Schemas (The CSV Interface)
 # ---------------------------------------------------------
 class TransactionCreate(BaseModel):
-    ticker: str = Field(..., min_length=1, max_length=32)
+    ticker: str = Field(..., min_length=1, max_length=128, description="Exchange ticker, ISIN, or mutual-fund scheme name.")
     transaction_type: TransactionType
     quantity: Decimal = Field(..., gt=0, description="Must be greater than 0")
     price_per_unit: Decimal = Field(..., ge=0, description="Must be 0 or greater")

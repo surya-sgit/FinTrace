@@ -51,13 +51,23 @@ class TransactionService:
         if not transaction_objs:
             raise ValueError("No valid transaction rows found in the uploaded file.")
 
-        from engine.ingestion.fund_classifier import is_mutual_fund, classify_fund_type
+        from engine.ingestion.fund_classifier import is_mutual_fund, classify_fund_type, MUTUAL_FUND_CLASSES
 
         unique_tickers = {t.ticker.upper() for t in transaction_objs if t.ticker and t.ticker.strip()}
-        mf_tickers = {t for t in unique_tickers if is_mutual_fund(t)}
+
+        # A ticker is a mutual fund if the parser flagged it (Groww MF scheme name) or
+        # it is an INF ISIN (CAS PDF). Track the parser's coarse class as a fallback.
+        parsed_mf_class = {}
+        for t in transaction_objs:
+            tk = t.ticker.upper()
+            if t.asset_class in MUTUAL_FUND_CLASSES:
+                parsed_mf_class[tk] = t.asset_class
+            elif is_mutual_fund(tk):
+                parsed_mf_class.setdefault(tk, "EQUITY_MF")
+        mf_tickers = set(parsed_mf_class.keys())
 
         # AMFI gives both the scheme CATEGORY (for tax classification) and the NAV (for
-        # pricing). Load the master once if the upload contains any mutual funds.
+        # pricing). Resolve by ISIN (CAS) or by scheme name (Groww). Load master once.
         amfi = None
         asset_class_by_ticker = {t: "EQUITY" for t in unique_tickers}
         if mf_tickers:
@@ -65,14 +75,14 @@ class TransactionService:
             amfi = AMFIService(self.db)
             for t in mf_tickers:
                 try:
-                    scheme = amfi.get_scheme(t)
-                    asset_class_by_ticker[t] = classify_fund_type(
-                        scheme.get("category") if scheme else None,
-                        scheme.get("scheme_name") if scheme else None,
-                    )
+                    scheme = amfi.get_scheme(t) if is_mutual_fund(t) else amfi.get_scheme_by_name(t)
                 except Exception as e:
                     logger.error(f"Error classifying MF {t}: {str(e)}")
-                    asset_class_by_ticker[t] = "EQUITY_MF"
+                    scheme = None
+                if scheme:
+                    asset_class_by_ticker[t] = classify_fund_type(scheme.get("category"), scheme.get("scheme_name"))
+                else:
+                    asset_class_by_ticker[t] = parsed_mf_class.get(t, "EQUITY_MF")
 
         # Sync corporate actions (equities only — MFs have no yfinance splits/dividends).
         for ticker in unique_tickers - mf_tickers:
@@ -106,12 +116,13 @@ class TransactionService:
         for txn in transaction_objs:
             row_dict = txn.model_dump()
             checksum = self._generate_row_checksum(str(portfolio.id), row_dict)
-            # Respect an explicit class from the file; otherwise use the AMFI-derived
-            # classification (mutual funds) or EQUITY (stocks).
-            asset_class = (
-                txn.asset_class if txn.asset_class != "EQUITY"
-                else asset_class_by_ticker.get(txn.ticker.upper(), "EQUITY")
-            )
+            # Mutual funds: prefer the AMFI-resolved class (falls back to the parser's
+            # name heuristic). Stocks: EQUITY.
+            tk = txn.ticker.upper()
+            if tk in mf_tickers:
+                asset_class = asset_class_by_ticker.get(tk) or txn.asset_class
+            else:
+                asset_class = txn.asset_class if txn.asset_class != "EQUITY" else "EQUITY"
             db_txn = models.TransactionLedger(
                 portfolio_id=portfolio.id,
                 ticker=txn.ticker.upper(),

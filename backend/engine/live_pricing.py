@@ -77,32 +77,35 @@ async def scheduled_market_data_update():
     from db.session import SessionLocal
     from domain.models import TransactionLedger
     
-    from engine.ingestion.fund_classifier import is_mutual_fund
+    from engine.ingestion.fund_classifier import is_mutual_fund, MUTUAL_FUND_CLASSES
 
     logger.info("Starting scheduled market data update...")
     db = SessionLocal()
     try:
-        # Get all distinct tickers from the ledger
-        tickers = db.query(TransactionLedger.ticker).distinct().all()
-        ticker_list = [t[0] for t in tickers]
-
-        equities = [t for t in ticker_list if not is_mutual_fund(t)]
-        mf_isins = [t for t in ticker_list if is_mutual_fund(t)]
+        # Distinct (ticker, asset_class) so we can route MFs (incl. scheme-name tickers)
+        # to AMFI and equities to the yfinance/Alpha Vantage waterfall.
+        rows = db.query(TransactionLedger.ticker, TransactionLedger.asset_class).distinct().all()
+        equities, mf_tickers = [], []
+        for ticker, asset_class in rows:
+            if (asset_class in MUTUAL_FUND_CLASSES) or is_mutual_fund(ticker):
+                mf_tickers.append(ticker)
+            else:
+                equities.append(ticker)
 
         for ticker in equities:
             await update_ticker_price(ticker, db)
 
         # Mutual funds: refresh NAVs from AMFI (master loaded once).
-        if mf_isins:
+        if mf_tickers:
             from engine.market_data.amfi_service import AMFIService
             amfi = AMFIService(db)
-            for isin in mf_isins:
+            for ticker in mf_tickers:
                 try:
-                    amfi.fetch_and_cache_nav(isin)
+                    amfi.fetch_and_cache_nav(ticker)
                 except Exception as e:
-                    logger.error(f"AMFI NAV update failed for {isin}: {str(e)}")
+                    logger.error(f"AMFI NAV update failed for {ticker}: {str(e)}")
 
-        logger.info(f"Scheduled update completed for {len(ticker_list)} distinct tickers.")
+        logger.info(f"Scheduled update completed for {len(equities) + len(mf_tickers)} distinct tickers.")
     except Exception as e:
         logger.error(f"Scheduled market data update failed: {str(e)}")
     finally:

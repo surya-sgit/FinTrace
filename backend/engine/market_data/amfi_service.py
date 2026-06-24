@@ -17,6 +17,7 @@ tests exercise the pure ``parse_navall`` parser and mock the HTTP layer.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Optional
@@ -28,6 +29,23 @@ from domain.models import MarketPrice, AssetPrices
 logger = logging.getLogger(__name__)
 
 AMFI_NAVALL_URL = "https://www.amfiindia.com/spages/NAVAll.txt"
+
+# Words dropped when normalising a fund name so a broker's label (e.g. Groww's
+# "ICICI Prudential Technology Direct Plan Growth") matches AMFI's official name
+# ("ICICI Prudential Technology Fund - Direct Plan - Growth").
+_NAME_NOISE = (
+    "DIRECT", "REGULAR", "PLAN", "GROWTH", "OPTION", "FUND", "SCHEME",
+    "IDCW", "DIVIDEND", "PAYOUT", "REINVESTMENT", "REINVEST",
+)
+
+
+def normalize_fund_name(name: str) -> str:
+    """Normalise a fund name for cross-source matching (plan/option words removed)."""
+    n = (name or "").upper()
+    for w in _NAME_NOISE:
+        n = re.sub(rf"\b{w}\b", " ", n)
+    n = re.sub(r"[^A-Z0-9]", " ", n)
+    return re.sub(r"\s+", " ", n).strip()
 
 
 def parse_navall(text: str) -> Dict[str, dict]:
@@ -85,6 +103,7 @@ class AMFIService:
     def __init__(self, db_session: Session):
         self.db = db_session
         self._master: Optional[Dict[str, dict]] = None
+        self._name_index: Optional[Dict[str, dict]] = None
 
     # ---------------------------------------------------------------- network
 
@@ -104,7 +123,17 @@ class AMFIService:
         except Exception as e:
             logger.error(f"Failed to load AMFI NAV master: {e}", exc_info=True)
             self._master = {}
+        # Build a normalised-name index for brokers that report scheme names (Groww).
+        self._name_index = {}
+        for entry in self._master.values():
+            key = normalize_fund_name(entry.get("scheme_name", ""))
+            if key:
+                self._name_index.setdefault(key, entry)
         return self._master
+
+    def get_scheme_by_name(self, scheme_name: str) -> Optional[dict]:
+        self.load_master()
+        return (self._name_index or {}).get(normalize_fund_name(scheme_name))
 
     # ------------------------------------------------------------- accessors
 
@@ -117,15 +146,21 @@ class AMFIService:
 
     # --------------------------------------------------------------- caching
 
-    def fetch_and_cache_nav(self, isin: str) -> Optional[Decimal]:
-        """Upsert the latest NAV for an ISIN into MarketPrice and AssetPrices so the
-        existing valuation consumers price the fund unchanged. Returns the NAV or None.
+    def fetch_and_cache_nav(self, identifier: str) -> Optional[Decimal]:
+        """Upsert the latest NAV for a fund into MarketPrice and AssetPrices so the
+        existing valuation consumers price it unchanged.
+
+        ``identifier`` is whatever the ledger stores as the ticker — an ISIN (CAS PDF)
+        or a scheme name (Groww MF). It is resolved against AMFI by ISIN then by name,
+        and the NAV is cached under that same identifier so ``get_price`` matches.
+        Returns the NAV or None if unresolved.
         """
-        isin = isin.strip().upper()
-        scheme = self.get_scheme(isin)
+        identifier = identifier.strip().upper()
+        scheme = self.get_scheme(identifier) or self.get_scheme_by_name(identifier)
         if not scheme:
-            logger.info(f"No AMFI scheme found for ISIN {isin}")
+            logger.info(f"No AMFI scheme found for '{identifier}'")
             return None
+        isin = identifier  # cache key = ledger ticker
 
         nav = scheme["nav"]
         try:

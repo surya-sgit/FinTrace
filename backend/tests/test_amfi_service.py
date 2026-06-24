@@ -18,7 +18,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from domain.models import Base, MarketPrice, AssetPrices
-from engine.market_data.amfi_service import AMFIService, parse_navall
+from engine.market_data.amfi_service import AMFIService, parse_navall, normalize_fund_name
 from engine.market_data.market_service import MarketDataService
 from engine.ingestion.fund_classifier import classify_fund_type
 
@@ -115,3 +115,29 @@ def test_fetch_and_cache_nav_unknown_isin_returns_none(db_session, monkeypatch):
     svc = AMFIService(db_session)
     monkeypatch.setattr(svc, "_fetch_navall_text", lambda: SAMPLE_NAVALL)
     assert svc.fetch_and_cache_nav("INF000X00X00") is None
+
+
+def test_normalize_fund_name_matches_across_sources():
+    # Groww label vs AMFI official name normalise to the same key.
+    groww = "ICICI Prudential Technology Direct Plan Growth"
+    amfi = "ICICI Prudential Technology Fund - Direct Plan - Growth"
+    assert normalize_fund_name(groww) == normalize_fund_name(amfi)
+
+
+def test_fetch_and_cache_nav_by_scheme_name(db_session, monkeypatch):
+    """Groww gives a scheme name (no ISIN) — NAV is resolved by name and cached under
+    that name so get_price resolves it."""
+    navall = (
+        "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date\n"
+        "\nOpen Ended Schemes(Equity Scheme - Sectoral/ Thematic)\n\nICICI Prudential Mutual Fund\n\n"
+        "120594;INF109K012B0;-;ICICI Prudential Technology Fund - Direct Plan - Growth;223.3100;24-Jun-2026\n"
+    )
+    svc = AMFIService(db_session)
+    monkeypatch.setattr(svc, "_fetch_navall_text", lambda: navall)
+
+    name = "ICICI PRUDENTIAL TECHNOLOGY DIRECT PLAN GROWTH"
+    nav = svc.fetch_and_cache_nav(name)
+    assert nav == Decimal("223.3100")
+
+    price = MarketDataService(db_session).get_price(name, datetime.date(2026, 6, 24))
+    assert price == 223.31
