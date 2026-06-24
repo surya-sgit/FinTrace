@@ -184,12 +184,20 @@ class HistoricalValuationPoint(BaseModel):
     date: str
     valuation: float
 
+class HoldingValue(BaseModel):
+    ticker: str
+    quantity: float
+    market_value: float
+    asset_class: str = "EQUITY"
+
+
 class XIRRReportResponse(BaseModel):
     portfolio_id: uuid.UUID
     xirr_percentage: float = Field(..., description="Annualized portfolio return rate as a percentage.")
     total_invested_capital: float = Field(..., description="Absolute sum of all capital deployed (includes brokerage).")
     current_market_value: float = Field(..., description="Value of all remaining holdings at the most recent cached market price.")
     valuation_history: List[HistoricalValuationPoint] = Field(default=[], description="Historical sequence of portfolio valuation")
+    holdings: List[HoldingValue] = Field(default=[], description="Per-holding current market value for allocation.")
 
     model_config = ConfigDict(
         from_attributes=True,

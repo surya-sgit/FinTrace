@@ -1,4 +1,5 @@
 # api/routers/portfolios.py
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -78,5 +79,38 @@ def get_portfolio(portfolio_id: str, db: Session = Depends(get_db), current_user
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Portfolio not found or you do not have permission to access it."
         )
-        
+
     return portfolio
+
+
+@router.delete(
+    "/{portfolio_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a portfolio",
+    description="Permanently deletes a portfolio and all of its ledger rows and cached "
+                "snapshots. This cannot be undone.",
+)
+def delete_portfolio(portfolio_id: uuid.UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    portfolio = db.query(models.Portfolio).filter(
+        models.Portfolio.id == portfolio_id,
+        models.Portfolio.user_id == current_user.id,
+    ).first()
+    if not portfolio:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Portfolio not found or you do not have permission to access it.",
+        )
+
+    # Remove dependent rows first (FKs are not all ON DELETE CASCADE).
+    for model in (
+        models.TransactionLedger,
+        models.PortfolioSnapshot,
+        models.PortfolioPositionSnapshot,
+        models.BehavioralAnalysisSnapshot,
+        models.PortfolioRiskSnapshot,
+    ):
+        db.query(model).filter(model.portfolio_id == portfolio.id).delete(synchronize_session=False)
+
+    db.delete(portfolio)
+    db.commit()
+    return None

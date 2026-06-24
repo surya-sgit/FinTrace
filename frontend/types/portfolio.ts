@@ -30,11 +30,19 @@ export interface ConsolidatedView {
     portfolios: ConsolidatedPortfolioSummary[];
 }
 
+export interface HoldingValue {
+    ticker: string;
+    quantity: number;
+    market_value: number;
+    asset_class: string;
+}
+
 export interface XIRRReport {
     xirr_percentage: number;
     total_invested_capital: number;
     current_market_value: number;
     valuation_history?: ValuationPoint[];
+    holdings?: HoldingValue[];
 }
 
 export interface FinancialYearTax {

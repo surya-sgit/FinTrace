@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/lib/api';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -36,15 +37,8 @@ export default function RegisterPage() {
             // Redirect to the command center
             router.push('/dashboard');
         } catch (err: any) {
-            // 1. Log the exact error to the browser console so we can see it
             console.error("FULL API ERROR:", err);
-
-            // 2. Display the actual network error instead of the fallback string
-            setError(
-                err.response?.data?.detail ||
-                err.message ||
-                'An unknown network error occurred.'
-            );
+            setError(getErrorMessage(err, 'An unknown network error occurred.'));
         } finally {
             setIsLoading(false);
         }

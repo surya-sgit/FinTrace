@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/lib/api';
+import { getErrorMessage } from '@/lib/errors';
 
 export default function LoginPage() {
     const router = useRouter();
@@ -33,7 +34,7 @@ export default function LoginPage() {
             // Redirect to the command center
             router.push('/dashboard');
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to login. Please check your credentials.');
+            setError(getErrorMessage(err, 'Failed to login. Please check your credentials.'));
         } finally {
             setIsLoading(false);
         }

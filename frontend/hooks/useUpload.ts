@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '@/lib/api';
+import { getErrorMessage } from '@/lib/errors';
 
 export function useUpload(portfolioId: string, refetch: () => void) {
     const [isUploading, setIsUploading] = useState(false);
@@ -48,7 +49,7 @@ export function useUpload(portfolioId: string, refetch: () => void) {
                 setUploadError("Validation failed. Please correct the errors in your file.");
                 setUploadRowErrors(err.response.data.detail.errors);
             } else {
-                setUploadError(err.response?.data?.detail || 'Upload failed. Please try again.');
+                setUploadError(getErrorMessage(err, 'Upload failed. Please try again.'));
             }
         } finally {
             setIsUploading(false);

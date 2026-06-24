@@ -32,7 +32,8 @@ class XIRREngine:
                 "current_cost_basis": 0.0,
                 "current_value": 0.0,
                 "unrealized_p_and_l": 0.0,
-                "valuation_history": []
+                "valuation_history": [],
+                "holdings": []
             }
 
         from collections import deque
@@ -164,6 +165,10 @@ class XIRREngine:
         current_portfolio_value = Decimal('0.0000')
         current_cost_basis = Decimal('0.0000')
 
+        # Per-ticker asset class for grouping equity vs mutual funds in allocation.
+        ac_map = {tx.ticker: (getattr(tx, "asset_class", None) or "EQUITY") for tx in transactions}
+        holdings_breakdown: List[dict] = []
+
         for ticker, queue in holdings_fifo.items():
             remaining_qty = sum(lot['qty'] for lot in queue)
             if remaining_qty > Decimal('0.0000'):
@@ -182,14 +187,24 @@ class XIRREngine:
 
                     current_portfolio_value += asset_value
                 except ValueError:
-                    # Missing terminal market data. Fallback to 0.00 so the report doesn't crash.
-                    latest_price = Decimal('0.00')
-                    asset_value = remaining_qty * latest_price
+                    # Missing terminal market data. Fallback to cost basis so allocation
+                    # stays meaningful (rather than zeroing the holding out).
+                    asset_value = cost_basis
 
                     xirr_dates.append(today)
                     xirr_amounts.append(float(asset_value))
 
                     current_portfolio_value += asset_value
+
+                holdings_breakdown.append({
+                    "ticker": ticker,
+                    "quantity": round(float(remaining_qty), 4),
+                    "market_value": round(float(asset_value), 2),
+                    "asset_class": ac_map.get(ticker, "EQUITY"),
+                })
+
+        # Largest holdings first for a clean allocation chart.
+        holdings_breakdown.sort(key=lambda h: h["market_value"], reverse=True)
 
         # Append today's final terminal value as the last point
         valuation_history.append({
@@ -215,5 +230,6 @@ class XIRREngine:
             "current_cost_basis": round(float(current_cost_basis), 2),
             "current_value": round(float(current_portfolio_value), 2),
             "unrealized_p_and_l": round(float(unrealized_pl), 2),
-            "valuation_history": valuation_history
+            "valuation_history": valuation_history,
+            "holdings": holdings_breakdown
         }

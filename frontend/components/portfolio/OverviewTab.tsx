@@ -42,9 +42,16 @@ export function OverviewTab({
         return 'text-gray-900';
     };
 
-    const pieData = taxReport?.current_holdings
-        ? Object.entries(taxReport.current_holdings).map(([name, value]) => ({ name, value: Number(value) })).filter(item => item.value > 0)
-        : [];
+    // Asset allocation must be by MARKET VALUE, not unit quantity (a fund with many
+    // units would otherwise dwarf a high-priced stock). Use the valued holdings from
+    // the XIRR report; fall back to raw quantities only if that's unavailable.
+    const pieData = (xirrReport?.holdings && xirrReport.holdings.length > 0)
+        ? xirrReport.holdings
+            .map(h => ({ name: h.ticker, value: Number(h.market_value) }))
+            .filter(item => item.value > 0)
+        : (taxReport?.current_holdings
+            ? Object.entries(taxReport.current_holdings).map(([name, value]) => ({ name, value: Number(value) })).filter(item => item.value > 0)
+            : []);
 
     // Show debt/hybrid mutual-fund tax columns only when the user actually holds them.
     const hasNonEquity = taxReport?.financial_years?.some(
@@ -282,7 +289,7 @@ export function OverviewTab({
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <RechartsTooltip />
+                                    <RechartsTooltip formatter={(value) => formatCurrency(Number(value))} />
                                     <Legend />
                                 </PieChart>
                             </ResponsiveContainer>

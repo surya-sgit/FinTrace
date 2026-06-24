@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
+import { getErrorMessage } from '@/lib/errors';
 import {
     Portfolio,
     XIRRReport,
@@ -58,7 +59,7 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
                     const portRes = await api.get(`/portfolios/${portfolioId}`);
                     setPortfolio(portRes.data);
                 } catch (err: any) {
-                    setError(err.response?.data?.detail || 'Failed to fetch portfolio details.');
+                    setError(getErrorMessage(err, 'Failed to fetch portfolio details.'));
                 } finally {
                     setIsLoading(false);
                 }
@@ -82,7 +83,7 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
                     const attrRes = await api.get(`/analytics/${portfolioId}/attribution?target_date=${selectedDate}`);
                     setAttributionData(attrRes.data);
                 } catch (err: any) {
-                    setAttributionError(err.response?.data?.detail || 'Failed to load attribution data.');
+                    setAttributionError(getErrorMessage(err, 'Failed to load attribution data.'));
                     setAttributionData(null);
                 } finally {
                     setIsAttributionLoading(false);
@@ -134,7 +135,7 @@ export function usePortfolioData(portfolioId: string, selectedDate: string) {
 
 
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to load portfolio details.');
+            setError(getErrorMessage(err, 'Failed to load portfolio details.'));
         } finally {
             setIsLoading(false);
         }

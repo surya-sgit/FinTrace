@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Briefcase, ArrowRight, Plus, LogOut, Loader2, X, Wallet, TrendingUp, PieChart } from 'lucide-react';
+import { Briefcase, ArrowRight, Plus, LogOut, Loader2, X, Wallet, TrendingUp, PieChart, Trash2 } from 'lucide-react';
 import api from '@/lib/api';
 import { ConsolidatedView } from '@/types/portfolio';
+import { getErrorMessage } from '@/lib/errors';
 
 interface Portfolio {
     id: string;
@@ -72,9 +73,27 @@ export default function DashboardPage() {
             // Instantly refresh the data so the new portfolio appears
             fetchPortfolios();
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Failed to create portfolio.');
+            setError(getErrorMessage(err, 'Failed to create portfolio.'));
         } finally {
             setIsCreating(false);
+        }
+    };
+
+    const [deletingId, setDeletingId] = useState<string | null>(null);
+
+    const handleDeletePortfolio = async (id: string, name: string) => {
+        if (!window.confirm(`Delete "${name}"? This permanently removes its ledger and reports and cannot be undone.`)) {
+            return;
+        }
+        setDeletingId(id);
+        setError('');
+        try {
+            await api.delete(`/portfolios/${id}`);
+            await fetchPortfolios();
+        } catch (err: any) {
+            setError(getErrorMessage(err, 'Failed to delete portfolio.'));
+        } finally {
+            setDeletingId(null);
         }
     };
 
@@ -208,12 +227,23 @@ export default function DashboardPage() {
                                 <div className="text-sm text-gray-500 mb-6">
                                     Created: {new Date(portfolio.created_at).toLocaleDateString()}
                                 </div>
-                                <button 
-                                    onClick={() => router.push(`/dashboard/${portfolio.id}`)}
-                                    className="w-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-100 transition-colors font-medium"
-                                >
-                                    View Analytics <ArrowRight className="w-4 h-4 ml-2" />
-                                </button>
+                                <div className="flex items-center space-x-2">
+                                    <button
+                                        onClick={() => router.push(`/dashboard/${portfolio.id}`)}
+                                        className="flex-1 flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-700 py-2 rounded-md hover:bg-gray-100 transition-colors font-medium"
+                                    >
+                                        View Analytics <ArrowRight className="w-4 h-4 ml-2" />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeletePortfolio(portfolio.id, portfolio.name)}
+                                        disabled={deletingId === portfolio.id}
+                                        title="Delete portfolio"
+                                        aria-label="Delete portfolio"
+                                        className="flex items-center justify-center p-2 border border-gray-200 text-gray-400 rounded-md hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
+                                    >
+                                        {deletingId === portfolio.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>
