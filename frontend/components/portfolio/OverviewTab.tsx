@@ -1,5 +1,5 @@
 import { UploadCloud, Download, Loader2, Activity, FileText, TrendingUp, PieChart as PieChartIcon, FileSpreadsheet, Landmark } from 'lucide-react';
-import { PieChart, Pie, Cell, Legend, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { Portfolio, XIRRReport, TaxReport, LongTermAttributionReport } from '@/types/portfolio';
 import { PerformanceChart } from './PerformanceChart';
 
@@ -52,6 +52,8 @@ export function OverviewTab({
         : (taxReport?.current_holdings
             ? Object.entries(taxReport.current_holdings).map(([name, value]) => ({ name, value: Number(value) })).filter(item => item.value > 0)
             : []);
+
+    const pieTotal = pieData.reduce((sum, d) => sum + d.value, 0);
 
     // Show debt/hybrid mutual-fund tax columns only when the user actually holds them.
     const hasNonEquity = taxReport?.financial_years?.some(
@@ -269,33 +271,65 @@ export function OverviewTab({
 
                 {/* Asset Allocation */}
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-5">
                         <PieChartIcon className="w-5 h-5 mr-2 text-blue-600" /> Asset Allocation
                     </h3>
                     {pieData.length > 0 ? (
-                        <div style={{ width: '100%', height: 250 }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={pieData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={80}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                    >
-                                        {pieData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                        ))}
-                                    </Pie>
-                                    <RechartsTooltip formatter={(value) => formatCurrency(Number(value))} />
-                                    <Legend />
-                                </PieChart>
-                            </ResponsiveContainer>
+                        <div className="flex flex-col sm:flex-row items-center gap-6">
+                            {/* Donut */}
+                            <div className="relative shrink-0" style={{ width: 200, height: 200 }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={pieData}
+                                            cx="50%"
+                                            cy="50%"
+                                            innerRadius={64}
+                                            outerRadius={88}
+                                            paddingAngle={2}
+                                            dataKey="value"
+                                            stroke="none"
+                                        >
+                                            {pieData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <RechartsTooltip formatter={(value) => formatCurrency(Number(value))} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                                {/* Centered total */}
+                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                    <span className="text-[11px] text-gray-400">Total</span>
+                                    <span className="text-base font-bold text-gray-900">{formatCurrency(pieTotal)}</span>
+                                </div>
+                            </div>
+
+                            {/* Legend list */}
+                            <div className="flex-1 w-full space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                                {pieData.map((entry, index) => {
+                                    const pct = pieTotal > 0 ? (entry.value / pieTotal) * 100 : 0;
+                                    return (
+                                        <div key={`legend-${index}`} className="flex items-center text-sm">
+                                            <span
+                                                className="w-2.5 h-2.5 rounded-full shrink-0 mr-2.5"
+                                                style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                            />
+                                            <span className="flex-1 min-w-0 truncate text-gray-700" title={entry.name}>
+                                                {entry.name}
+                                            </span>
+                                            <span className="ml-3 shrink-0 tabular-nums text-gray-500 w-12 text-right">
+                                                {pct.toFixed(1)}%
+                                            </span>
+                                            <span className="ml-3 shrink-0 tabular-nums font-medium text-gray-900 w-24 text-right">
+                                                {formatCurrency(entry.value)}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     ) : (
-                        <div className="h-64 flex items-center justify-center text-gray-400">
+                        <div className="h-56 flex items-center justify-center text-gray-400">
                             No holdings available to visualize.
                         </div>
                     )}
