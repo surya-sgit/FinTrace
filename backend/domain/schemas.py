@@ -86,6 +86,20 @@ class TransactionCreate(BaseModel):
             raise ValueError("Execution date cannot be after settlement date.")
         return self
 
+    @model_validator(mode='after')
+    def validate_dividend_amount(self) -> 'TransactionCreate':
+        """
+        Dividend income is computed everywhere as quantity x price_per_unit. A zero
+        per-share value therefore silently records a zero dividend, so reject it with
+        an actionable message instead of accepting a meaningless row.
+        """
+        if self.transaction_type == TransactionType.DIVIDEND and self.price_per_unit <= 0:
+            raise ValueError(
+                "Dividend rows must record the dividend-per-share in 'price_per_unit' "
+                "(total dividend = quantity x price_per_unit). A value of 0 was provided."
+            )
+        return self
+
 class TransactionResponse(TransactionCreate):
     id: uuid.UUID
     portfolio_id: uuid.UUID

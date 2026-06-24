@@ -273,6 +273,35 @@ def test_dividends_surfaced_per_fy(db_session):
     assert _fy(report, "2024-25")["dividend_income"] == Decimal("1200.00") if report["financial_years"] else True
 
 
+def test_dividend_amount_is_quantity_times_price(db_session):
+    """Regression for the silent-zero dividend bug: 20 shares x Rs.8.50/share = 170,
+    surfaced in the same FY as a realized sell."""
+    pid = _pid()
+    db_session.add_all([
+        _buy(pid, "INFY.NS", 100, 1000, datetime.date(2022, 1, 1)),
+        _div(pid, "INFY.NS", 20, "8.50", datetime.date(2024, 6, 1)),  # 170 dividend
+        _sell(pid, "INFY.NS", 100, 1500, datetime.date(2024, 9, 1)),
+    ])
+    db_session.flush()
+
+    report = FIFOTaxEngine(db_session, pid).compute_tax_report()
+    assert report["dividends"]["2024-25"] == Decimal("170.00")
+    assert _fy(report, "2024-25")["dividend_income"] == Decimal("170.00")
+
+
+def test_zero_value_dividend_rejected_by_schema():
+    """A DIVIDEND row with price_per_unit=0 must fail validation, not record Rs.0."""
+    from pydantic import ValidationError
+    from domain import schemas
+
+    with pytest.raises(ValidationError, match="dividend-per-share"):
+        schemas.TransactionCreate(
+            ticker="INFY", transaction_type="DIVIDEND",
+            quantity=Decimal("20"), price_per_unit=Decimal("0"),
+            execution_date=datetime.date(2024, 3, 1),
+        )
+
+
 def test_partial_sell_keeps_remaining_holdings(db_session):
     """Buy 100@100, sell 40 -> 60 remain in holdings; FIFO leftover preserved."""
     pid = _pid()

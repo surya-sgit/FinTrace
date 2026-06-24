@@ -108,8 +108,11 @@ export function OverviewTab({
                             <Download className="w-3.5 h-3.5 mr-1" /> Template
                         </a>
                     </div>
-                    <p className="text-sm text-gray-500 mb-4">
+                    <p className="text-sm text-gray-500 mb-2">
                         Upload a broker CSV or CAS PDF to sync transaction ledgers.
+                    </p>
+                    <p className="text-xs text-gray-400 mb-4">
+                        For <span className="font-medium">DIVIDEND</span> rows, enter the dividend-per-share in <span className="font-mono">price_per_unit</span> (total = quantity × price).
                     </p>
                     
                     {!selectedFile || selectedFile.name.toLowerCase().endsWith('.csv') ? (
