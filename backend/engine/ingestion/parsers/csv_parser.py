@@ -11,7 +11,7 @@ import io
 import re
 from decimal import Decimal
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 
 from domain import schemas
 from ..base import BaseParser, IngestionValidationError
