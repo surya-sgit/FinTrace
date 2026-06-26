@@ -59,7 +59,7 @@ export function processMwrSlicing(mwrSlicing: MwrSlicingItem[] | null | undefine
             const original = item.standalone_xirr;
             let displayXirr = original;
             let isCapped = false;
-            if (displayXirr > 2.0) { displayXirr = 2.0; isCapped = true; }
+            if (displayXirr > 10.0) { displayXirr = 10.0; isCapped = true; }
             else if (displayXirr < -1.0) { displayXirr = -1.0; isCapped = true; }
             return { ...item, standalone_xirr: displayXirr, original_xirr: original, isCapped };
         })

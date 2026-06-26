@@ -21,9 +21,10 @@ class TransactionService:
         self.market_service = MarketDataService(db_session)
         self.corp_service = CorporateActionService(db_session)
 
-    def _generate_row_checksum(self, portfolio_id: str, row_data: dict) -> str:
+    def _generate_row_checksum(self, portfolio_id: str, row_data: dict, sequence_number: int) -> str:
         """Creates a deterministic SHA-256 hash for a transaction row."""
-        raw_string = f"{portfolio_id}_{row_data.get('ticker')}_{row_data.get('transaction_type')}_{row_data.get('quantity')}_{row_data.get('price_per_unit')}_{row_data.get('execution_date')}"
+        ticker = str(row_data.get('ticker', '')).strip().upper()
+        raw_string = f"{portfolio_id}_{ticker}_{row_data.get('transaction_type')}_{row_data.get('quantity')}_{row_data.get('price_per_unit')}_{row_data.get('execution_date')}_{sequence_number}"
         return hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
 
     def process_upload(self, portfolio: models.Portfolio, file_bytes: bytes, file_name: str, password: Optional[str] = None) -> int:
@@ -113,9 +114,9 @@ class TransactionService:
         # --- END STATEFUL LEDGER INTEGRITY VALIDATION ---
 
         db_transactions = []
-        for txn in transaction_objs:
+        for idx, txn in enumerate(transaction_objs):
             row_dict = txn.model_dump()
-            checksum = self._generate_row_checksum(str(portfolio.id), row_dict)
+            checksum = self._generate_row_checksum(str(portfolio.id), row_dict, idx)
             # Mutual funds: prefer the AMFI-resolved class (falls back to the parser's
             # name heuristic). Stocks: EQUITY.
             tk = txn.ticker.upper()
@@ -133,6 +134,7 @@ class TransactionService:
                 asset_class=asset_class,
                 execution_date=txn.execution_date,
                 settlement_date=txn.settlement_date,
+                sequence_number=idx,
                 checksum=checksum,
             )
             db_transactions.append(db_txn)
