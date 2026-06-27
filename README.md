@@ -1,10 +1,7 @@
 # FinTrace v0.1 — Engineering Preview (Proprietary)
 
-![FinTrace Banner](https://via.placeholder.com/1200x300?text=FinTrace+Dashboard)
 
 > **An auditable portfolio accounting and tax-analysis platform for Indian investors that converts broker statements into reconciled holdings, capital-gains working papers, performance analytics, and explainable reports.**
-
-![FinTrace Demo](https://via.placeholder.com/800x400?text=Demo+GIF)
 
 FinTrace is a quantitative analytics application for retail investors. It allows users to track their portfolios, analyze historical performance, compute complex tax liabilities (FIFO, STCG, LTCG), and interact with a quantitative AI Copilot to query their data.
 
