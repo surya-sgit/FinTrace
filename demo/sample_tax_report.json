@@ -1,0 +1,100 @@
+{
+    "realized_stcg": 21000.0,
+    "realized_ltcg": 50000.0,
+    "current_holdings": {
+        "RELIANCE.NS": 150.0,
+        "TCS.NS": 30.0
+    },
+    "financial_years": [
+        {
+            "financial_year": "2022-23",
+            "gross_stcg": 15000.0,
+            "gross_ltcg": 0.0,
+            "taxable_stcg": 15000.0,
+            "taxable_ltcg": 0.0,
+            "ltcg_exemption_applied": 0.0,
+            "stcg_tax": 2250.0,
+            "ltcg_tax": 0.0,
+            "noneq_ltcg_gain": 0.0,
+            "noneq_ltcg_tax": 0.0,
+            "slab_taxable_gain": 0.0,
+            "total_tax": 2250.0,
+            "dividend_income": 0.0,
+            "stcg_loss_carried_forward": 0.0,
+            "ltcg_loss_carried_forward": 0.0
+        },
+        {
+            "financial_year": "2023-24",
+            "gross_stcg": 6000.0,
+            "gross_ltcg": 50000.0,
+            "taxable_stcg": 6000.0,
+            "taxable_ltcg": 0.0,
+            "ltcg_exemption_applied": 50000.0,
+            "stcg_tax": 900.0,
+            "ltcg_tax": 0.0,
+            "noneq_ltcg_gain": 0.0,
+            "noneq_ltcg_tax": 0.0,
+            "slab_taxable_gain": 0.0,
+            "total_tax": 900.0,
+            "dividend_income": 0.0,
+            "stcg_loss_carried_forward": 0.0,
+            "ltcg_loss_carried_forward": 0.0
+        }
+    ],
+    "total_tax_payable": 3150.0,
+    "slab_taxable_gain": 0.0,
+    "realized_events": [
+        {
+            "ticker": "RELIANCE.NS",
+            "asset_class": "EQUITY",
+            "treatment": "EQUITY_ST",
+            "buy_date": "2022-11-05",
+            "sell_date": "2023-02-15",
+            "quantity": 50.0,
+            "cost_basis": 125000.0,
+            "proceeds": 140000.0,
+            "gain": 15000.0,
+            "is_long_term": false,
+            "grandfathered": false,
+            "fmv_used": null,
+            "fy_start": 2022,
+            "fy_label": "2022-23",
+            "current_regime": false
+        },
+        {
+            "ticker": "TCS.NS",
+            "asset_class": "EQUITY",
+            "treatment": "EQUITY_LT",
+            "buy_date": "2023-01-15",
+            "sell_date": "2024-02-10",
+            "quantity": 100.0,
+            "cost_basis": 300000.0,
+            "proceeds": 350000.0,
+            "gain": 50000.0,
+            "is_long_term": true,
+            "grandfathered": false,
+            "fmv_used": null,
+            "fy_start": 2023,
+            "fy_label": "2023-24",
+            "current_regime": false
+        },
+        {
+            "ticker": "TCS.NS",
+            "asset_class": "EQUITY",
+            "treatment": "EQUITY_ST",
+            "buy_date": "2023-05-20",
+            "sell_date": "2024-02-10",
+            "quantity": 20.0,
+            "cost_basis": 64000.0,
+            "proceeds": 70000.0,
+            "gain": 6000.0,
+            "is_long_term": false,
+            "grandfathered": false,
+            "fmv_used": null,
+            "fy_start": 2023,
+            "fy_label": "2023-24",
+            "current_regime": false
+        }
+    ],
+    "dividends": {}
+}

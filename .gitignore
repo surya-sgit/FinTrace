@@ -36,3 +36,12 @@ Thumbs.db
 .idea/
 *.swp
 .agents/*
+
+# ---------------------------------------------------------
+# Internal Planning Docs (Local Only)
+# ---------------------------------------------------------
+2Day POA.md
+docs/PRODUCT_AND_TECH_STRATEGY.md
+docs/TEST_INFRA.md
+docs/TEST_READY.md
+docs/audit_report.md

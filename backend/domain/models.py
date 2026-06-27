@@ -10,6 +10,10 @@ from sqlalchemy.ext.compiler import compiles
 def compile_bigint_sqlite(type_, compiler, **kw):
     return "INTEGER"
 
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
+
 Base = declarative_base()
 
 class User(Base):
